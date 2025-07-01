@@ -1,4 +1,4 @@
-// index.js (Final Merged & Updated Script)
+// index.js (Final Merged & Upgraded Script with Clans)
 
 // --- Library Imports ---
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
@@ -30,7 +30,7 @@ const YOUR_API_KEY = 'drednot123';
 const mongoUri = process.env.MONGO_URI;
 if (!mongoUri) throw new Error("CRITICAL: MONGO_URI not found!");
 const mongoClient = new MongoClient(mongoUri);
-let economyCollection, verificationsCollection, marketCollection, lootboxCollection;
+let economyCollection, verificationsCollection, marketCollection, lootboxCollection, clansCollection, serverStateCollection; // Added clan collections
 let userPaginationData = {};
 let currentGlobalEvent = null;
 
@@ -43,6 +43,9 @@ async function connectToDatabase() {
         verificationsCollection = db.collection("verifications");
         marketCollection = db.collection("market_listings");
         lootboxCollection = db.collection("lootbox_listings");
+        // Initialize new collections for the clan system
+        clansCollection = db.collection("clans");
+        serverStateCollection = db.collection("server_state");
         console.log("Database collections are set up.");
     } catch (error) { console.error("DB connection failed", error); process.exit(1); }
 }
@@ -69,7 +72,7 @@ const SMELT_COOLDOWN_SECONDS_PER_ORE = 30, SMELT_COAL_COST_PER_ORE = 1;
 const MINIMUM_ACTION_COOLDOWN_MS = 1000;
 
 const EVENT_CHANNEL_ID = '1231644783350911006'; // <-- IMPORTANT: SET THIS
-const DREDNOT_INVITE_LINK = 'https://drednot.io/invite/KOciB52Quo4z_luxo7zAFKPc';
+const DREDNOT_INVITE_LINK = 'https://drednot.io/invite/wQcS5UHUS5wkGVCKvSDyTMa_';
 const EVENT_TICK_INTERVAL_MINUTES = 5;
 const EVENT_CHANCE = 0.15;
 const EVENTS = {
@@ -118,6 +121,31 @@ const LOOTBOXES = {
 };
 
 // =========================================================================
+// --- CLAN DEFINITIONS & CONFIGURATION ---
+// =========================================================================
+const CLAN_MEMBER_LIMIT = 20;
+const CLAN_JOIN_COOLDOWN_HOURS = 1;
+const CLAN_WAR_DURATION_DAYS = 7;
+const CLAN_LEVELS = [
+    { level: 1, cost: 0, perks: "Clan Creation" },
+    { level: 2, cost: 5000, perks: "+5% Work Bonus" },
+    { level: 3, cost: 10000, perks: "+2.5% Momentum Chance (Work/Gather Cooldown Reset)" },
+    { level: 4, cost: 25000, perks: "Work Bonus increased to +10%" },
+    { level: 5, cost: 50000, perks: "Slots Max Bet Doubled" },
+    { level: 6, cost: 100000, perks: "+1 Abundance (Bonus item from Gather)" },
+    { level: 7, cost: 250000, perks: "Momentum Chance increased to +5%" },
+    { level: 8, cost: 500000, perks: "Work Bonus increased to +15%" },
+    { level: 9, cost: 1000000, perks: "Abundance increased to +2" },
+    { level: 10, cost: 2500000, perks: "Abundance increased to +5" }
+];
+const CLAN_WAR_REWARDS = {
+    1: { items: [{ itemId: 'trait_reforger', quantity: 5 }, { itemId: 'crystal_crate', quantity: 3 }] },
+    2: { items: [{ itemId: 'trait_reforger', quantity: 3 }, { itemId: 'crystal_crate', quantity: 1 }] },
+    3: { items: [{ itemId: 'trait_reforger', quantity: 1 }] }
+};
+
+
+// =========================================================================
 // --- HELPER & UTILITY FUNCTIONS ---
 // =========================================================================
 function rollNewTrait() { const totalWeight = Object.values(TRAITS).reduce((sum, trait) => sum + trait.weight, 0); let random = secureRandomFloat() * totalWeight; for (const traitId in TRAITS) { if (random < TRAITS[traitId].weight) { const level = Math.ceil(secureRandomFloat() * TRAITS[traitId].maxLevel); return { name: traitId, level: level }; } random -= TRAITS[traitId].weight; } }
@@ -142,6 +170,9 @@ async function createNewAccount(identifier, type = 'drednot') {
         smelting: null,
         activeBuffs: [],
         wasBumped: false,
+        // Add clan fields to new accounts
+        clanId: null,
+        clanJoinCooldown: null,
         traits: { slots: [rollNewTrait(), rollNewTrait()] },
         zeal: { stacks: 0, lastAction: 0 }
     };
@@ -152,7 +183,7 @@ async function createNewAccount(identifier, type = 'drednot') {
 async function updateAccount(identifier, updates) { const idStr = String(identifier).toLowerCase(); await economyCollection.updateOne({ $or: [{ _id: idStr }, { discordId: String(identifier) }] }, { $set: updates }); }
 async function modifyInventory(identifier, itemId, amount) { if (!itemId) return; const updateField = `inventory.${itemId}`; const idStr = String(identifier).toLowerCase(); await economyCollection.updateOne({ $or: [{ _id: idStr }, { discordId: String(identifier) }] }, { $inc: { [updateField]: amount } }); }
 function getItemIdByName(name) { return Object.keys(ITEMS).find(k => ITEMS[k].name.toLowerCase() === name.toLowerCase()); }
-function formatDuration(seconds) { if (seconds < 60) return `${Math.ceil(seconds)}s`; const minutes = Math.floor(seconds / 60); const remainingSeconds = Math.ceil(seconds % 60); return `${minutes}m ${remainingSeconds}s`; }
+function formatDuration(seconds) { if (seconds <= 0) return '0s'; if (seconds < 60) return `${Math.ceil(seconds)}s`; const minutes = Math.floor(seconds / 60); const remainingSeconds = Math.ceil(seconds % 60); if (remainingSeconds === 0) return `${minutes}m`; return `${minutes}m ${remainingSeconds}s`; }
 async function findNextAvailableListingId(collection) { const listings = await collection.find({}, { projection: { listingId: 1 } }).toArray(); const usedIds = listings.map(l => l.listingId).filter(id => id != null).sort((a, b) => a - b); let expectedId = 1; for (const id of usedIds) { if (id !== expectedId) { return expectedId; } expectedId++; } return expectedId; }
 function getPaginatedResponse(identifier, type, allLines, title, pageChange = 0) { const linesPerPage = 10; if (pageChange === 0 || !userPaginationData[identifier] || userPaginationData[identifier].type !== type) { userPaginationData[identifier] = { lines: allLines, currentPage: 0, type, title }; } const session = userPaginationData[identifier]; session.currentPage += pageChange; const totalPages = Math.ceil(session.lines.length / linesPerPage); if (session.currentPage >= totalPages && totalPages > 0) session.currentPage = totalPages - 1; if (session.currentPage < 0) session.currentPage = 0; const startIndex = session.currentPage * linesPerPage; const linesForPage = session.lines.slice(startIndex, startIndex + linesPerPage); const footer = `Page ${session.currentPage + 1}/${totalPages}. Use !n or !p to navigate.`; const discordContent = `**--- ${title} (Page ${session.currentPage + 1}/${totalPages}) ---**\n${linesForPage.length > 0 ? linesForPage.join('\n') : "No items on this page."}`; const row = new ActionRowBuilder().addComponents( new ButtonBuilder().setCustomId(`paginate_back_${identifier}`).setLabel('⬅️ Previous').setStyle(ButtonStyle.Secondary).setDisabled(session.currentPage === 0), new ButtonBuilder().setCustomId(`paginate_next_${identifier}`).setLabel('Next ➡️').setStyle(ButtonStyle.Secondary).setDisabled(session.currentPage >= totalPages - 1) ); const gameContent = [`--- ${toBoldFont(title)} ---`, ...linesForPage, footer]; return { discord: { content: discordContent, components: [row] }, game: gameContent }; }
 async function selfHealAccount(account) {
@@ -163,14 +194,307 @@ async function selfHealAccount(account) {
     if (account.dailyStreak === undefined) { updates['dailyStreak'] = 0; needsUpdate = true; console.log(`[Self-Heal] Adding dailyStreak to account: ${account._id}`); }
     if (account.lastHourly === undefined) { updates['lastHourly'] = null; needsUpdate = true; console.log(`[Self-Heal] Adding lastHourly to account: ${account._id}`); }
     if (account.hourlyStreak === undefined) { updates['hourlyStreak'] = 0; needsUpdate = true; console.log(`[Self-Heal] Adding hourlyStreak to account: ${account._id}`); }
+    // Add self-healing for clan fields
+    if (account.clanId === undefined) { updates['clanId'] = null; needsUpdate = true; console.log(`[Self-Heal] Adding clanId to account: ${account._id}`); }
+    if (account.clanJoinCooldown === undefined) { updates['clanJoinCooldown'] = null; needsUpdate = true; console.log(`[Self-Heal] Adding clanJoinCooldown to account: ${account._id}`); }
     if (needsUpdate) { await updateAccount(account._id, updates); return getAccount(account._id); } return account;
 }
 const shuffleArray = (array) => { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [array[i], array[j]] = [array[j], array[i]]; } return array; }
 function openLootbox(lootboxId) { const crate = LOOTBOXES[lootboxId]; if (!crate) return null; const totalWeight = crate.contents.reduce((sum, item) => sum + item.weight, 0); let random = secureRandomFloat() * totalWeight; for (const reward of crate.contents) { if (random < reward.weight) { const amount = Math.floor(secureRandomFloat() * (reward.max - reward.min + 1)) + reward.min; return { type: reward.type, id: reward.id, amount: amount }; } random -= reward.weight; } const lastReward = crate.contents[crate.contents.length - 1]; const amount = Math.floor(secureRandomFloat() * (lastReward.max - lastReward.min + 1)) + lastReward.min; return { type: lastReward.type, id: lastReward.id, amount: amount };}
 function getActiveTraits(account, traitName) { return (account.traits?.slots || []).filter(t => t.name === traitName); }
+function generateClanCode() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    for (let i = 0; i < 5; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
 const BOLD_MAP = { 'a': '𝐚', 'b': '𝐛', 'c': '𝐜', 'd': '𝐝', 'e': '𝐞', 'f': '𝐟', 'g': '𝐠', 'h': '𝐡', 'i': '𝐢', 'j': '𝐣', 'k': '𝐤', 'l': '𝐥', 'm': '𝐦', 'n': '𝐧', 'o': '𝐨', 'p': '𝐩', 'q': '𝐪', 'r': '𝐫', 's': '𝐬', 't': '𝐭', 'u': '𝐮', 'v': '𝐯', 'w': '𝐰', 'x': '𝐱', 'y': '𝐲', 'z': '𝐳', 'A': '𝐀', 'B': '𝐁', 'C': '𝐂', 'D': '𝐃', 'E': '𝐄', 'F': '𝐅', 'G': '𝐆', 'H': '𝐇', 'I': '𝐈', 'J': '𝐉', 'K': '𝐊', 'L': '𝐋', 'M': '𝐌', 'N': '𝐍', 'O': '𝐎', 'P': '𝐏', 'Q': '𝐐', 'R': '𝐑', 'S': '𝐒', 'T': '𝐓', 'U': '𝐔', 'V': '𝐕', 'W': '𝐖', 'X': '𝐗', 'Y': '𝐘', 'Z': '𝐙', '0': '𝟎', '1': '𝟏', '2': '𝟐', '3': '𝟑', '4': '𝟒', '5': '𝟓', '6': '𝟔', '7': '𝟕', '8': '𝟖', '9': '𝟗', ' ': ' ', ':':':' };
 function toBoldFont(text) { return String(text).split('').map(char => BOLD_MAP[char.toLowerCase()] || char).join(''); }
 
+
+// =========================================================================
+// --- CLAN HANDLER FUNCTIONS ---
+// =========================================================================
+async function getClan(identifier) {
+    return await clansCollection.findOne({ code: identifier });
+}
+async function getClanById(clanId) {
+    return await clansCollection.findOne({ _id: clanId });
+}
+async function handleClanCreate(account, clanName) {
+    if (account.clanId) {
+        return { success: false, message: "You are already in a clan." };
+    }
+    if (!clanName || clanName.length < 3 || clanName.length > 24) {
+        return { success: false, message: "Clan name must be between 3 and 24 characters." };
+    }
+    const existingClan = await clansCollection.findOne({ name: new RegExp(`^${clanName}$`, 'i') });
+    if (existingClan) {
+        return { success: false, message: "A clan with that name already exists." };
+    }
+    let uniqueCode;
+    let isCodeUnique = false;
+    while (!isCodeUnique) {
+        uniqueCode = generateClanCode();
+        const existingCode = await clansCollection.findOne({ code: uniqueCode });
+        if (!existingCode) {
+            isCodeUnique = true;
+        }
+    }
+    const newClan = {
+        name: clanName,
+        code: uniqueCode,
+        ownerId: account._id,
+        members: [account._id],
+        level: 1,
+        vaultBalance: 0,
+        warPoints: 0,
+        recruitment: 1,
+        applicants: [],
+        pendingInvites: [],
+        createdAt: new Date(),
+    };
+    const result = await clansCollection.insertOne(newClan);
+    await updateAccount(account._id, { clanId: result.insertedId });
+    return { success: true, message: `You have successfully founded the clan **${clanName}**! Your unique clan code is \`{${uniqueCode}}\` . The clan is currently **Open** for anyone to join.` };
+}
+async function handleClanLeave(account) {
+    if (!account.clanId) {
+        return { success: false, message: "You are not in a clan." };
+    }
+    const clan = await getClanById(account.clanId);
+    if (!clan) {
+        await updateAccount(account._id, { clanId: null });
+        return { success: false, message: "The clan you were in seems to have been disbanded. You are no longer part of it." };
+    }
+    if (clan.ownerId === account._id) {
+        return { success: false, message: "You cannot leave the clan because you are the owner. You must use `/clan disband` instead." };
+    }
+    await clansCollection.updateOne({ _id: clan._id }, { $pull: { members: account._id } });
+    const cooldownTime = new Date(Date.now() + CLAN_JOIN_COOLDOWN_HOURS * 60 * 60 * 1000);
+    await updateAccount(account._id, { clanId: null, clanJoinCooldown: cooldownTime });
+    return { success: true, message: `You have left **${clan.name}**. You cannot join another clan for **${CLAN_JOIN_COOLDOWN_HOURS} hour**.` };
+}
+async function handleClanKick(account, targetAccount) {
+    if (!account.clanId) {
+        return { success: false, message: "You are not in a clan." };
+    }
+    const clan = await getClanById(account.clanId);
+    if (!clan) { return { success: false, message: "You are not in a valid clan." }; }
+    if (clan.ownerId !== account._id) { return { success: false, message: "Only the clan owner can kick members." }; }
+    if (!targetAccount || targetAccount.clanId?.toString() !== clan._id.toString()) { return { success: false, message: `That player is not in your clan.` }; }
+    if (targetAccount._id === account._id) { return { success: false, message: "You cannot kick yourself." }; }
+    await clansCollection.updateOne({ _id: clan._id }, { $pull: { members: targetAccount._id } });
+    const cooldownTime = new Date(Date.now() + CLAN_JOIN_COOLDOWN_HOURS * 60 * 60 * 1000);
+    await updateAccount(targetAccount._id, { clanId: null, clanJoinCooldown: cooldownTime });
+    return { success: true, message: `You have kicked **${targetAccount.drednotName || targetAccount.displayName}** from the clan. They cannot join another clan for **${CLAN_JOIN_COOLDOWN_HOURS} hour**.` };
+}
+async function handleClanDisband(account) {
+    if (!account.clanId) { return { success: false, message: "You are not in a clan." }; }
+    const clan = await getClanById(account.clanId);
+    if (!clan) { return { success: false, message: "You are not in a valid clan." }; }
+    if (clan.ownerId !== account._id) { return { success: false, message: "Only the clan owner can disband the clan." }; }
+    await economyCollection.updateMany({ clanId: clan._id }, { $set: { clanId: null } });
+    await clansCollection.deleteOne({ _id: clan._id });
+    return { success: true, message: `You have disbanded **${clan.name}**. All members have been removed.` };
+}
+async function handleClanInfo(clanCode) {
+    const clan = await getClan(clanCode);
+    if (!clan) { return { success: false, message: "No clan found with that code." }; }
+    const ownerAccount = await getAccount(clan.ownerId);
+    const ownerName = ownerAccount?.drednotName || ownerAccount?.displayName || 'Unknown Leader';
+    const nextLevelInfo = CLAN_LEVELS.find(l => l.level === clan.level + 1);
+    const progressText = nextLevelInfo 
+        ? `Vault: ${clan.vaultBalance.toLocaleString()} / ${nextLevelInfo.cost.toLocaleString()} to Level ${nextLevelInfo.level}` 
+        : 'Max Level Reached';
+    const status = clan.recruitment === 1 ? 'Open' : 'Closed';
+    const memberIdRegexes = clan.members.map(id => new RegExp(`^${id}$`, 'i'));
+    const memberAccounts = await economyCollection.find({ _id: { $in: memberIdRegexes } }).toArray();
+    const memberMap = new Map(memberAccounts.map(acc => [acc._id.toLowerCase(), acc]));
+    let memberList = "Error fetching member list.";
+    try {
+        memberList = clan.members.map(id => {
+            const memberAccount = memberMap.get(id.toLowerCase());
+            const name = memberAccount ? (memberAccount.drednotName || memberAccount.displayName || 'Unnamed Member') : 'Missing Member Data';
+            return memberAccount?._id === clan.ownerId ? `👑 ${name}` : `- ${name}`;
+        }).join('\n');
+    } catch (error) {
+        console.error("Error generating member list for clan", clan._id, ":", error);
+    }
+    const embed = new EmbedBuilder()
+        .setTitle(`${clan.name} [Lv ${clan.level}]`)
+        .setColor('#3498DB')
+        .setDescription(`**Code:** \`{${clan.code}}\`\n**Leader:** ${ownerName}`)
+        .addFields(
+            { name: 'Recruitment', value: status, inline: true },
+            { name: 'Members', value: `${clan.members.length}/${CLAN_MEMBER_LIMIT}`, inline: true },
+            { name: 'Progress', value: progressText, inline: false },
+            { name: 'Roster', value: memberList.length > 0 ? memberList : "No members found.", inline: false }
+        );
+    return { success: true, embed: embed };
+}
+async function handleClanList() {
+    const availableClans = await clansCollection.find({ [`members.${CLAN_MEMBER_LIMIT - 1}`]: { $exists: false } }).toArray();
+    if (availableClans.length === 0) {
+        return { success: false, lines: ["There are currently no clans with open slots."] };
+    }
+    const shuffled = availableClans.sort(() => 0.5 - Math.random());
+    const formattedLines = shuffled.map(clan => `**${clan.name}** [Lv ${clan.level}] \`{${clan.code}}\` `);
+    return { success: true, lines: formattedLines };
+}
+async function handleClanRecruit(account, status) {
+    if (!account.clanId) { return { success: false, message: "You are not in a clan." }; }
+    const clan = await getClanById(account.clanId);
+    if (!clan) { return { success: false, message: "You are not in a valid clan." }; }
+    if (clan.ownerId !== account._id) { return { success: false, message: "Only the clan owner can change the recruitment status." }; }
+    const newStatus = parseInt(status, 10);
+    if (newStatus !== 1 && newStatus !== 2) { return { success: false, message: "Invalid status. Use 1 for Open or 2 for Closed." }; }
+    await clansCollection.updateOne({ _id: clan._id }, { $set: { recruitment: newStatus } });
+    const statusText = newStatus === 1 ? 'OPEN' : 'CLOSED';
+    return { success: true, message: `Your clan's recruitment status has been set to **${statusText}**.` };
+}
+async function handleClanDonate(account, amount) {
+    if (!account.clanId) { return { success: false, message: "You are not in a clan." }; }
+    if (isNaN(amount) || amount <= 0) { return { success: false, message: "Please provide a valid, positive amount to donate." }; }
+    if (account.balance < amount) {
+        return { success: false, message: "You do not have enough Bits to donate." };
+    }
+    const updateResult = await economyCollection.updateOne({ _id: account._id, balance: { $gte: amount } }, { $inc: { balance: -amount } });
+    if (updateResult.modifiedCount === 0) {
+        return { success: false, message: "Failed to donate. You may not have enough Bits." };
+    }
+    await clansCollection.updateOne({ _id: account.clanId }, { $inc: { vaultBalance: amount } });
+    return { success: true, message: `You have successfully donated **${amount.toLocaleString()} ${CURRENCY_NAME}** to the clan vault!` };
+}
+async function handleClanUpgrade(account) {
+    if (!account.clanId) { return { success: false, message: "You are not in a clan." }; }
+    const clan = await getClanById(account.clanId);
+    if (!clan) { return { success: false, message: "You are not in a valid clan." }; }
+    if (clan.ownerId !== account._id) { return { success: false, message: "Only the clan owner can upgrade the clan." }; }
+    const nextLevel = clan.level + 1;
+    const upgradeInfo = CLAN_LEVELS.find(l => l.level === nextLevel);
+    if (!upgradeInfo) { return { success: false, message: "Your clan is already at the maximum level." }; }
+    if (clan.vaultBalance < upgradeInfo.cost) {
+        return { success: false, message: `Your clan vault does not have enough Bits. You need **${(upgradeInfo.cost - clan.vaultBalance).toLocaleString()}** more.` };
+    }
+    await clansCollection.updateOne(
+        { _id: clan._id },
+        { $inc: { level: 1, vaultBalance: -upgradeInfo.cost } }
+    );
+    return { success: true, message: `**Congratulations!** Your clan has reached **Level ${nextLevel}**!\n> **New Perk:** ${upgradeInfo.perks}` };
+}
+async function handleClanJoin(account, clanCode) {
+    if (account.clanId) { return { success: false, message: "You are already in a clan." }; }
+    if (account.clanJoinCooldown && new Date() < account.clanJoinCooldown) {
+        const remaining = formatDuration((account.clanJoinCooldown.getTime() - Date.now()) / 1000);
+        return { success: false, message: `You cannot join a new clan yet. Please wait **${remaining}**.` };
+    }
+    const clan = await getClan(clanCode);
+    if (!clan) { return { success: false, message: "No clan found with that code." }; }
+    if (clan.members.length >= CLAN_MEMBER_LIMIT) { return { success: false, message: "That clan is full." }; }
+    if (clan.recruitment === 1) {
+        await clansCollection.updateOne({ _id: clan._id }, { $push: { members: account._id } });
+        await updateAccount(account._id, { clanId: clan._id });
+        return { success: true, message: `You have joined **${clan.name}**!` };
+    } else {
+        if(clan.applicants.includes(account._id)) {
+            return { success: false, message: "You have already applied to this clan. Please wait for the owner to respond."}
+        }
+        await clansCollection.updateOne({ _id: clan._id }, { $push: { applicants: account._id } });
+        return { success: true, message: `You have applied to join **${clan.name}**. The owner has been notified.` };
+    }
+}
+async function handleClanInvite(account, targetAccount) {
+    if (!targetAccount) {
+        if (account.clanId) { return { success: false, message: "You are already in a clan." }; }
+        const invitedClans = await clansCollection.find({ pendingInvites: account._id }).toArray();
+        if (invitedClans.length === 0) {
+            return { success: false, message: "You have no pending clan invitations." };
+        }
+        const inviteList = invitedClans.map(c => `- **${c.name}** [Lv ${c.level}] \`{${c.code}}\` `);
+        return { success: true, message: `You have pending invitations from:\n${inviteList.join('\n')}\nUse \`/clan accept <code>\` to join.` };
+    }
+    if (!account.clanId) { return { success: false, message: "You must be in a clan to invite players." }; }
+    const clan = await getClanById(account.clanId);
+    if (!clan) { return { success: false, message: "You are not in a valid clan." }; }
+    if (clan.ownerId !== account._id) { return { success: false, message: "Only the clan owner can manage invitations." }; }
+    if(targetAccount === 'view') {
+        if (clan.applicants.length === 0) {
+            return { success: false, message: "Your clan has no pending applications." };
+        }
+        const applicantAccounts = await economyCollection.find({ _id: { $in: clan.applicants } }).toArray();
+        const applicantNames = applicantAccounts.map(a => a.drednotName || a.displayName || 'Unknown User');
+        return { success: true, message: `**Applicants:** ${applicantNames.join(', ')}\nUse \`/clan accept <username>\` to approve.` };
+    }
+    if (clan.members.length >= CLAN_MEMBER_LIMIT) { return { success: false, message: "Your clan is full." }; }
+    if (targetAccount.clanId) { return { success: false, message: `**${targetAccount.drednotName || targetAccount.displayName}** is already in a clan.` }; }
+    if(clan.pendingInvites.includes(targetAccount._id)) { return { success: false, message: "You have already invited that player." } }
+    await clansCollection.updateOne({ _id: clan._id }, { $push: { pendingInvites: targetAccount._id } });
+    return { success: true, message: `An invitation has been sent to **${targetAccount.drednotName || targetAccount.displayName}**. They can see it by using \`/clan invite\` .` };
+}
+async function handleClanAccept(account, identifier) {
+    if (identifier.length === 5) { // Assuming it's a clan code
+        if (account.clanId) { return { success: false, message: "You are already in a clan." }; }
+        const clan = await getClan(identifier);
+        if (!clan) { return { success: false, message: "Invalid clan code." }; }
+        if (!clan.pendingInvites.includes(account._id)) { return { success: false, message: "You have not been invited to this clan." }; }
+        if (clan.members.length >= CLAN_MEMBER_LIMIT) { return { success: false, message: "That clan is now full." }; }
+        await clansCollection.updateMany({}, { $pull: { pendingInvites: account._id, applicants: account._id } });
+        await clansCollection.updateOne({ _id: clan._id }, { $push: { members: account._id } });
+        await updateAccount(account._id, { clanId: clan._id });
+        return { success: true, message: `You have accepted the invitation and joined **${clan.name}**!` };
+    }
+    // Assuming it's a username to accept an applicant
+    const clan = await getClanById(account.clanId);
+    if (!clan) { return { success: false, message: "You are not in a clan." }; }
+    if (clan.ownerId !== account._id) { return { success: false, message: "Only the clan owner can accept applications." }; }
+    const targetAccount = await getAccount(identifier);
+    if (!targetAccount) { return { success: false, message: `Could not find a player named "${identifier}".` }; }
+    if (!clan.applicants.includes(targetAccount._id)) { return { success: false, message: `That player has not applied to your clan.` }; }
+    if (clan.members.length >= CLAN_MEMBER_LIMIT) { return { success: false, message: "Your clan is full." }; }
+    await clansCollection.updateMany({}, { $pull: { pendingInvites: targetAccount._id, applicants: targetAccount._id } });
+    await clansCollection.updateOne({ _id: clan._id }, { $push: { members: targetAccount._id } });
+    await updateAccount(targetAccount._id, { clanId: clan._id });
+    return { success: true, message: `You have accepted **${targetAccount.drednotName || targetAccount.displayName}** into the clan!` };
+}
+async function handleClanDecline(account, clanCode) {
+    if (account.clanId) { return { success: false, message: "This command is for players who are not in a clan." }; }
+    const clan = await getClan(clanCode);
+    if (!clan) { return { success: false, message: "Invalid clan code." }; }
+    const updateResult = await clansCollection.updateOne(
+        { _id: clan._id }, 
+        { $pull: { pendingInvites: account._id, applicants: account._id } }
+    );
+    if (updateResult.modifiedCount > 0) {
+        return { success: true, message: `You have declined the invitation/application for **${clan.name}**.` };
+    } else {
+        return { success: false, message: `You do not have a pending invitation or application for **${clan.name}**.` };
+    }
+}
+async function handleClanWar() {
+    const warState = await serverStateCollection.findOne({ stateKey: "clan_war" });
+
+    if (!warState || new Date() > new Date(warState.warEndTime)) {
+        return { success: false, message: "There is no clan war currently active." };
+    }
+
+    const topClans = await clansCollection.find({ warPoints: { $gt: 0 } }).sort({ warPoints: -1 }).limit(10).toArray();
+
+    if (topClans.length === 0) {
+        return { success: true, message: "The clan war is active, but no clan has scored any points yet!" };
+    }
+
+    const timeLeft = formatDuration((new Date(warState.warEndTime).getTime() - Date.now()) / 1000);
+    const header = `**Clan War: The Endless Conflict**\n\`----Time left: ${timeLeft}------\``;
+    const medals = ['🏆', '🥈', '🥉'];
+    const lines = topClans.map((clan, index) => {
+        const medal = index < 3 ? `${medals[index]} ` : '';
+        return `\`#${index + 1}.\` ${medal}\`[${clan.code}] ${clan.name}\` - **${clan.warPoints.toLocaleString()}** Points`;
+    });
+    return { success: true, message: `${header}\n${lines.join('\n')}` };
+}
 
 // =========================================================================
 // --- CORE COMMAND HANDLERS ---
@@ -296,7 +620,6 @@ async function handleSmelt(account, itemName, quantity) {
         return { success: false, message: `You don't have enough coal. You need ${coalNeeded} ⚫ Coal.` };
     }
     
-    // Use findOneAndUpdate to ensure atomicity
     const updateResult = await economyCollection.findOneAndUpdate(
         { _id: account._id, [`inventory.${itemIdToProcess}`]: { $gte: quantity }, [`inventory.coal`]: { $gte: coalNeeded } },
         { $inc: { [`inventory.${itemIdToProcess}`]: -quantity, [`inventory.coal`]: -coalNeeded } }
@@ -362,6 +685,10 @@ async function handleTimers(account) {
     if (account.smelting && account.smelting.finishTime > now) {
         timers.push(`> 🔥 **Smelting**: ${formatDuration((account.smelting.finishTime - now) / 1000)}`);
     }
+    
+    if(account.clanJoinCooldown && now < new Date(account.clanJoinCooldown).getTime()) {
+        timers.push(`> 🛡️ **Clan Join**: ${formatDuration((new Date(account.clanJoinCooldown).getTime() - now) / 1000)}`);
+    }
 
     if (activeBuffs.length > 0) {
         timers.push(`\n**Active Buffs:**`);
@@ -372,31 +699,40 @@ async function handleTimers(account) {
         });
     }
 
-    const name = account.drednotName || account.displayName || `User ${account._id}`;
-    return timers; // Return array directly for embed processing
+    return timers;
 }
 
 async function handleWork(account) {
     let now = Date.now();
     let baseCooldown = WORK_COOLDOWN_MINUTES * 60 * 1000;
-    let workBonusPercent = 0; let scavengerChance = 0; let cooldownReductionPercent = 0; let zealStacks = 0; let zealBonusPerStack = 0;
-    if (account.traits) { getActiveTraits(account, 'wealth').forEach(t => workBonusPercent += 5 * t.level); getActiveTraits(account, 'scavenger').forEach(t => scavengerChance += 5 * t.level); getActiveTraits(account, 'prodigy').forEach(t => cooldownReductionPercent += 5 * t.level); const zealotTraits = getActiveTraits(account, 'zealot'); if (zealotTraits.length > 0) { const zealotLevel = zealotTraits[0].level; zealBonusPerStack = 2.5 * zealotLevel; if (account.zeal && (now - account.zeal.lastAction) < 10 * 60 * 1000) { zealStacks = Math.min(10, (account.zeal.stacks || 0) + 1); } else { zealStacks = 1; } workBonusPercent += zealStacks * zealBonusPerStack; } }
+    let workBonusPercent = 0; let scavengerChance = 0; let cooldownReductionPercent = 0; let momentumChance = 0;
+
+    let clan = null;
+    if (account.clanId) {
+        clan = await getClanById(account.clanId);
+        if (clan) {
+            if (clan.level >= 8) workBonusPercent += 15;
+            else if (clan.level >= 4) workBonusPercent += 10;
+            else if (clan.level >= 2) workBonusPercent += 5;
+            
+            if (clan.level >= 7) momentumChance = 5;
+            else if (clan.level >= 3) momentumChance = 2.5;
+        }
+    }
+
+    if (account.traits) { getActiveTraits(account, 'wealth').forEach(t => workBonusPercent += 5 * t.level); getActiveTraits(account, 'scavenger').forEach(t => scavengerChance += 5 * t.level); getActiveTraits(account, 'prodigy').forEach(t => cooldownReductionPercent += 5 * t.level); }
     let currentCooldown = baseCooldown * (1 - cooldownReductionPercent / 100);
     let activeBuffs = (account.activeBuffs || []).filter(buff => buff.expiresAt > now);
     
     let toolBonusFlat = 0;
-    let toolBonusPercent = 0; // This is a decimal, e.g., 0.1 for 10%
+    let toolBonusPercent = 0;
     for (const itemId in account.inventory) {
         if (account.inventory[itemId] > 0) {
             const itemDef = ITEMS[itemId];
             if (itemDef?.type === 'tool' && itemDef.effects) {
                 const qty = account.inventory[itemId];
-                if (itemDef.effects.work_bonus_flat) {
-                    toolBonusFlat += itemDef.effects.work_bonus_flat * qty;
-                }
-                if (itemDef.effects.work_bonus_percent) {
-                    toolBonusPercent += itemDef.effects.work_bonus_percent * qty;
-                }
+                if (itemDef.effects.work_bonus_flat) toolBonusFlat += itemDef.effects.work_bonus_flat * qty;
+                if (itemDef.effects.work_bonus_percent) toolBonusPercent += itemDef.effects.work_bonus_percent * qty;
             }
         }
     }
@@ -404,45 +740,72 @@ async function handleWork(account) {
     for (const buff of activeBuffs) { if (buff.itemId === 'the_addict_rush') workBonusPercent += buff.effects.work_bonus_percent; if (ITEMS[buff.itemId]?.buff?.effects) { if(ITEMS[buff.itemId].buff.effects.work_bonus_percent) workBonusPercent += ITEMS[buff.itemId].buff.effects.work_bonus_percent; if(ITEMS[buff.itemId].buff.effects.work_cooldown_reduction_ms) currentCooldown -= ITEMS[buff.itemId].buff.effects.work_cooldown_reduction_ms; } }
     
     currentCooldown = Math.max(MINIMUM_ACTION_COOLDOWN_MS, currentCooldown);
-
-    if (account.lastWork && (now - account.lastWork) < currentCooldown) { return { success: false, message: `You are on cooldown. Wait **${formatDuration((currentCooldown - (now - account.lastWork)) / 1000)}**.` }; }
+    
+    const cooldownReset = Math.random() * 100 < momentumChance;
+    if (!cooldownReset && account.lastWork && (now - account.lastWork) < currentCooldown) { return { success: false, message: `You are on cooldown. Wait **${formatDuration((currentCooldown - (now - account.lastWork)) / 1000)}**.` }; }
+    
     let baseEarnings = Math.floor(secureRandomFloat() * (WORK_REWARD_MAX - WORK_REWARD_MIN + 1)) + WORK_REWARD_MIN;
     
     const totalPercentBonus = workBonusPercent + (toolBonusPercent * 100);
     const bonusFromPercent = Math.floor(baseEarnings * (totalPercentBonus / 100));
-    const bonusFromFlat = toolBonusFlat;
-    const totalBonus = bonusFromPercent + bonusFromFlat;
-    let totalEarnings = baseEarnings + totalBonus;
-    let bonusText = totalBonus > 0 ? ` (+${totalBonus} bonus)` : '';
+    let totalEarnings = baseEarnings + bonusFromPercent + toolBonusFlat;
+    let bonusText = (bonusFromPercent + toolBonusFlat) > 0 ? ` (+${(bonusFromPercent + toolBonusFlat)} bonus)` : '';
     let eventMessage = '';
     if (currentGlobalEvent && currentGlobalEvent.effect.type === 'work') {
         totalEarnings *= currentGlobalEvent.effect.multiplier;
         eventMessage = ` **(x${currentGlobalEvent.effect.multiplier} ${currentGlobalEvent.name}!)**`;
     }
     
-    if (!isFinite(totalEarnings) || isNaN(totalEarnings)) {
-        console.error(`[CRITICAL] Invalid earnings calculated for account ${account._id}. Value: ${totalEarnings}. Aborting balance update.`);
-        return { success: false, message: "An error occurred while calculating your earnings. Your balance has not been changed. Please contact an admin." };
-    }
+    if (!isFinite(totalEarnings) || isNaN(totalEarnings)) { return { success: false, message: "An error occurred calculating earnings." }; }
     
     let finalMessage = `You earned **${Math.round(totalEarnings)}** ${CURRENCY_NAME}${bonusText}!${eventMessage}`;
-    let updates = { $inc: { balance: totalEarnings }, $set: { lastWork: now, 'zeal.stacks': zealStacks, 'zeal.lastAction': now }, $pull: { activeBuffs: { itemId: 'the_addict_rush' } } };
+    let updates = { $inc: { balance: totalEarnings }, $pull: { activeBuffs: { itemId: 'the_addict_rush' } } };
+
+    if (!cooldownReset) {
+        updates.$set = { lastWork: now };
+    } else {
+        finalMessage += `\n> ✨ Your clan's **Momentum** perk reset your cooldown!`;
+    }
+    
     let scavengerLoot = '';
     if (scavengerChance > 0 && secureRandomFloat() * 100 < scavengerChance) {
         const loot = ['wood', 'stone'][Math.floor(Math.random() * 2)];
         const qty = Math.floor(Math.random() * 3) + 1;
         scavengerLoot = `\n> Your Scavenger trait found you **${qty}x** ${ITEMS[loot].name}!`;
-        if (!updates.$inc) updates.$inc = {};
+        if(!updates.$inc) updates.$inc = {};
         updates.$inc[`inventory.${loot}`] = qty;
     }
     await economyCollection.updateOne({_id: account._id}, updates);
+
+    if (clan) {
+        const warState = await serverStateCollection.findOne({ stateKey: "clan_war" });
+        if (warState && new Date() < new Date(warState.warEndTime)) {
+            await clansCollection.updateOne({ _id: clan._id }, { $inc: { warPoints: 1 } });
+        }
+    }
+
     return { success: true, message: finalMessage + scavengerLoot };
 }
 
 async function handleGather(account) {
     let now = Date.now();
-    let baseCooldown = GATHER_COOLDOWN_MINUTES * 60 * 1000; let cooldownReductionPercent = 0; let surveyorChance = 0; let zealStacks = 0; let zealBonusPerStack = 0;
-    if (account.traits) { getActiveTraits(account, 'prodigy').forEach(t => cooldownReductionPercent += 5 * t.level); getActiveTraits(account, 'surveyor').forEach(t => surveyorChance += 2 * t.level); const zealotTraits = getActiveTraits(account, 'zealot'); if (zealotTraits.length > 0) { const zealotLevel = zealotTraits[0].level; zealBonusPerStack = 2.5 * zealotLevel; if (account.zeal && (now - account.zeal.lastAction) < 10 * 60 * 1000) { zealStacks = Math.min(10, (account.zeal.stacks || 0) + 1); } else { zealStacks = 1; } } }
+    let baseCooldown = GATHER_COOLDOWN_MINUTES * 60 * 1000; 
+    let cooldownReductionPercent = 0; let surveyorChance = 0; let momentumChance = 0; let abundanceBonus = 0;
+
+    let clan = null;
+    if (account.clanId) {
+        clan = await getClanById(account.clanId);
+        if (clan) {
+            if (clan.level >= 10) abundanceBonus = 5;
+            else if (clan.level >= 9) abundanceBonus = 2;
+            else if (clan.level >= 6) abundanceBonus = 1;
+
+            if (clan.level >= 7) momentumChance = 5;
+            else if (clan.level >= 3) momentumChance = 2.5;
+        }
+    }
+    
+    if (account.traits) { getActiveTraits(account, 'prodigy').forEach(t => cooldownReductionPercent += 5 * t.level); getActiveTraits(account, 'surveyor').forEach(t => surveyorChance += 2 * t.level); }
     let currentCooldown = baseCooldown * (1 - cooldownReductionPercent / 100);
     let activeBuffs = (account.activeBuffs || []).filter(buff => buff.expiresAt > now);
     if (activeBuffs.length < (account.activeBuffs || []).length) { await updateAccount(account._id, { activeBuffs }); }
@@ -450,7 +813,9 @@ async function handleGather(account) {
 
     currentCooldown = Math.max(MINIMUM_ACTION_COOLDOWN_MS, currentCooldown);
     
-    if (account.lastGather && (now - account.lastGather) < currentCooldown) { return { success: false, message: `You are tired. Wait **${formatDuration((currentCooldown - (now - account.lastGather)) / 1000)}**.` }; }
+    const cooldownReset = Math.random() * 100 < momentumChance;
+    if (!cooldownReset && account.lastGather && (now - account.lastGather) < currentCooldown) { return { success: false, message: `You are tired. Wait **${formatDuration((currentCooldown - (now - account.lastGather)) / 1000)}**.` }; }
+
     const basketCount = account.inventory['gathering_basket'] || 0;
     const maxTypes = MAX_GATHER_TYPES_BASE + basketCount;
     let gatheredItems = [];
@@ -461,33 +826,55 @@ async function handleGather(account) {
         let chance = GATHER_TABLE[itemId].baseChance;
         if (currentGlobalEvent?.effect.type === 'gather_chance') { chance *= currentGlobalEvent.effect.multiplier; }
         if (currentGlobalEvent?.effect.type === 'gather_rare_chance' && currentGlobalEvent.effect.item === itemId) { chance *= currentGlobalEvent.effect.multiplier; }
-        if(zealStacks > 0) chance *= (1 + (zealStacks * zealBonusPerStack / 100));
+        
         if (secureRandomFloat() < chance) {
             let baseQty = Math.floor(secureRandomFloat() * (GATHER_TABLE[itemId].maxQty - GATHER_TABLE[itemId].minQty + 1)) + GATHER_TABLE[itemId].minQty;
             let bonusQty = 0;
             for (let i = 0; i < basketCount; i++) if (secureRandomFloat() < 0.5) bonusQty++;
-            const finalQty = baseQty + bonusQty;
+            const finalQty = baseQty + bonusQty + abundanceBonus;
             updates[`inventory.${itemId}`] = (updates[`inventory.${itemId}`] || 0) + finalQty;
-            const bonusText = bonusQty > 0 ? ` (+${bonusQty} bonus)` : '';
-            gatheredItems.push({id: itemId, qty: finalQty, text: `> ${ITEMS[itemId].emoji} **${finalQty}x** ${ITEMS[itemId].name}${bonusText}`});
+            const bonusText = bonusQty > 0 ? ` (+${bonusQty} basket)` : '';
+            const clanBonusText = abundanceBonus > 0 ? ` (+${abundanceBonus} clan)` : '';
+            gatheredItems.push({id: itemId, qty: finalQty, text: `> ${ITEMS[itemId].emoji} **${finalQty}x** ${ITEMS[itemId].name}${bonusText}${clanBonusText}`});
         }
     }
-    if (Object.keys(updates).length === 0) { await updateAccount(account._id, { lastGather: now, 'zeal.stacks': zealStacks, 'zeal.lastAction': now }); return { success: true, message: 'You searched but found nothing of value.' }; }
+    
+    let setUpdates = {};
+    if (!cooldownReset) {
+        setUpdates.lastGather = now;
+    }
+    
+    if (Object.keys(updates).length === 0) { 
+        await updateAccount(account._id, setUpdates); 
+        let msg = 'You searched but found nothing of value.';
+        if (cooldownReset) msg += `\n> ✨ Your clan's **Momentum** perk reset your cooldown!`;
+        return { success: true, message: msg };
+    }
+    
     let surveyorDoubled = false;
     if (surveyorChance > 0 && secureRandomFloat() * 100 < surveyorChance) { surveyorDoubled = true; for (const item of gatheredItems) { updates[`inventory.${item.id}`] = (updates[`inventory.${item.id}`] || 0) + item.qty; } }
-    await economyCollection.updateOne({ _id: account._id }, { $inc: updates, $set: { lastGather: now, 'zeal.stacks': zealStacks, 'zeal.lastAction': now } });
+    await economyCollection.updateOne({ _id: account._id }, { $inc: updates, $set: setUpdates });
+    
     let message = `You gathered:\n${gatheredItems.map(i => i.text).join('\n')}`;
     if(surveyorDoubled) message += `\n\n**A stroke of luck! Your Surveyor trait doubled the entire haul!**`;
+    if(cooldownReset) message += `\n> ✨ Your clan's **Momentum** perk reset your cooldown!`;
     if (currentGlobalEvent && (currentGlobalEvent.effect.type === 'gather_chance' || currentGlobalEvent.effect.type === 'gather_rare_chance')) {
         message += `\n*(${currentGlobalEvent.name} is active!)*`;
     }
+
+    if (clan) {
+        const warState = await serverStateCollection.findOne({ stateKey: "clan_war" });
+        if (warState && new Date() < new Date(warState.warEndTime)) {
+            await clansCollection.updateOne({ _id: clan._id }, { $inc: { warPoints: 1 } });
+        }
+    }
+
     return { success: true, message: message };
 }
 
 async function handleHourly(account) {
     const now = Date.now();
     const hourlyCooldown = HOURLY_COOLDOWN_MINUTES * 60 * 1000;
-    // We allow up to 2 hours between claims to maintain a streak
     const streakBreakTime = 2 * hourlyCooldown;
 
     if (account.lastHourly && (now - account.lastHourly) < hourlyCooldown) {
@@ -608,12 +995,20 @@ async function handleFlip(account, amount, choice) {
     }
 }
 async function handleSlots(account, amount) { 
+    let maxBet = SLOTS_MAX_BET;
+    if (account.clanId) {
+        const clan = await getClanById(account.clanId);
+        if (clan && clan.level >= 5) {
+            maxBet = SLOTS_MAX_BET * 2;
+        }
+    }
+
     const now = Date.now();
     const cooldown = SLOTS_COOLDOWN_SECONDS * 1000;
     if (account.lastSlots && (now - account.lastSlots) < cooldown) return { success: false, message: `Slow down! Wait **${formatDuration((cooldown - (now - account.lastSlots))/1000)}**.` };
     
-    if (isNaN(amount) || amount < SLOTS_MIN_BET || amount > SLOTS_MAX_BET) {
-        return { success: false, message: `Your bet must be between **${SLOTS_MIN_BET}** and **${SLOTS_MAX_BET}** ${CURRENCY_NAME}.` };
+    if (isNaN(amount) || amount < SLOTS_MIN_BET || amount > maxBet) {
+        return { success: false, message: `Your bet must be between **${SLOTS_MIN_BET}** and **${maxBet}** ${CURRENCY_NAME}.` };
     }
     const preLossBalance = account.balance;
     if (preLossBalance < amount) { return { success: false, message: "You don't have enough bits." }; }
@@ -670,10 +1065,10 @@ async function handleAccountMerge(discordId, drednotName) {
     const drednotNameLower = drednotName.toLowerCase(); 
     const session = mongoClient.startSession(); 
     try { 
-        session.startTransaction(); 
+        await session.startTransaction(); 
         const discordAccount = await economyCollection.findOne({ _id: discordId }, { session }); 
         let drednotAccount = await economyCollection.findOne({ _id: drednotNameLower }, { session }); 
-        if (!drednotAccount) { await session.abortTransaction(); await createNewAccount(drednotName, 'drednot'); await session.endSession(); return handleAccountMerge(discordId, drednotName); } 
+        if (!drednotAccount) { await session.abortTransaction(); await createNewAccount(drednotName, 'drednot'); drednotAccount = await getAccount(drednotName); await updateAccount(drednotAccount._id, { discordId: discordId }); return { success: true, message: `✅ Verification successful! Your accounts are now linked.` }; } 
         if (!discordAccount) { await session.abortTransaction(); await updateAccount(drednotName, { discordId: discordId }); await session.endSession(); return { success: true, message: `✅ Verification successful! Your accounts are now linked.` }; }
         if (!isFinite(discordAccount.balance) || !isFinite(drednotAccount.balance)) { throw new Error("Merge Conflict: One or both accounts have a corrupted balance. Cannot merge."); }
         if (discordAccount.smelting && drednotAccount.smelting) { throw new Error("Merge Conflict: Both accounts have active smelting jobs."); } 
@@ -737,6 +1132,50 @@ async function processGlobalEventTick() {
         }
     }
 }
+async function processClanWarTick() {
+    try {
+        let state = await serverStateCollection.findOne({ stateKey: "clan_war" });
+        const now = new Date();
+
+        if (!state || now > new Date(state.warEndTime)) {
+            if (state) { // War has just ended, process rewards
+                console.log("[CLAN WAR] War has ended. Processing rewards...");
+                const winningClans = await clansCollection.find({ warPoints: { $gt: 0 } }).sort({ warPoints: -1 }).limit(3).toArray();
+                if (winningClans.length > 0) {
+                     const eventChannel = client.channels.cache.get(EVENT_CHANNEL_ID);
+                     if (eventChannel) {
+                         const winnerDescriptions = winningClans.map((c, i) => {
+                             const medals = ['🏆', '🥈', '🥉'];
+                             return `${medals[i]} **${c.name}** - ${c.warPoints.toLocaleString()} Points`;
+                         });
+                         const embed = new EmbedBuilder().setColor('#FFD700').setTitle('⚔️ Clan War Concluded! ⚔️').setDescription(`The battle has ended! Here are the final standings:\n\n${winnerDescriptions.join('\n')}`).setFooter({ text: "Rewards have been distributed to the members of the winning clans." });
+                         await eventChannel.send({ embeds: [embed] }).catch(console.error);
+                     }
+                     for (let i = 0; i < winningClans.length; i++) {
+                         const clan = winningClans[i];
+                         const rank = i + 1;
+                         const reward = CLAN_WAR_REWARDS[rank];
+                         if (reward && reward.items) {
+                             const members = await economyCollection.find({ clanId: clan._id }).toArray();
+                             for (const member of members) {
+                                 for (const item of reward.items) {
+                                     await modifyInventory(member._id, item.itemId, item.quantity);
+                                 }
+                             }
+                         }
+                     }
+                }
+                await clansCollection.updateMany({}, { $set: { warPoints: 0 } });
+            }
+            // Start a new war
+            const newEndTime = new Date(now.getTime() + CLAN_WAR_DURATION_DAYS * 24 * 60 * 60 * 1000);
+            await serverStateCollection.updateOne({ stateKey: "clan_war" }, { $set: { warEndTime: newEndTime } }, { upsert: true });
+            console.log(`[CLAN WAR] War clock (re)started successfully. Ends at: ${newEndTime.toISOString()}`);
+        }
+    } catch (error) {
+        console.error("[CRITICAL ERROR IN CLAN WAR TICKER]:", error);
+    }
+}
 
 // =========================================================================
 // --- DISCORD EVENT HANDLERS ---
@@ -751,11 +1190,10 @@ client.on('interactionCreate', async (interaction) => {
         else if (interaction.isAutocomplete()) {
             const focusedOption = interaction.options.getFocused(true);
             let choices = [];
-            // NOTE: For craft command, ensure the quantity option is defined in your command registration script
             if (interaction.commandName === 'craft') { choices = Object.values(ITEMS).filter(i => i.craftable).map(i => i.name); }
             else if (interaction.commandName === 'eat') { choices = Object.values(ITEMS).filter(i => i.type === 'food').map(i => i.name); }
             else if (interaction.commandName === 'info') { const itemNames = Object.values(ITEMS).map(i => i.name); const traitNames = Object.values(TRAITS).map(t => t.name); choices = [...itemNames, ...traitNames]; }
-            else if (interaction.commandName === 'marketsell') { choices = Object.values(ITEMS).map(i => i.name); }
+            else if (interaction.commandName === 'marketsell' || interaction.commandName === 'smelt') { choices = Object.values(ITEMS).map(i => i.name); }
             else if (interaction.commandName === 'crateshopbuy' && focusedOption.name === 'crate_name') {
                 const currentListings = await lootboxCollection.find({}).toArray();
                 const availableCrateIds = new Set(currentListings.map(l => l.lootboxId));
@@ -799,8 +1237,16 @@ async function handleButtonInteraction(interaction) {
 
 async function handleSlashCommand(interaction) {
     const { commandName, user, options } = interaction;
-    const privateCommands = [ 'link', 'name', 'timers', 'inventory', 'balance', 'traits', 'marketcancel', ];
-    if (privateCommands.includes(commandName)) { await interaction.deferReply({ ephemeral: true }); } else { await interaction.deferReply(); }
+    const privateCommands = [ 'link', 'name', 'timers', 'inventory', 'balance', 'traits', 'marketcancel', 'clan' ];
+    
+    // Clan list, info, and war are public, others are private.
+    const isPublicClanCommand = commandName === 'clan' && ['war', 'list', 'info'].includes(options.getSubcommand());
+    
+    if (privateCommands.includes(commandName) && !isPublicClanCommand) {
+        await interaction.deferReply({ ephemeral: true });
+    } else {
+        await interaction.deferReply();
+    }
     
     let account = await getAccount(user.id);
     let isNewUser = false;
@@ -814,15 +1260,90 @@ async function handleSlashCommand(interaction) {
     if (account.wasBumped) {
         await updateAccount(user.id, { wasBumped: false });
         const bumpedEmbed = new EmbedBuilder()
-            .setColor('#FEE75C') // Yellow for warning
+            .setColor('#FEE75C')
             .setTitle('Display Name Reset!')
             .setDescription("A player from Drednot has registered with the name you were using. Since Drednot names have priority, your display name has been reset.\nPlease use the `/name` command to choose a new, unique display name, or use `/link` to connect your own Drednot account.");
         return interaction.editReply({ embeds: [bumpedEmbed] });
     }
 
-    // --- Command Handling ---
     let result, amount, choice, itemName, quantity, price, listingId;
     switch (commandName) {
+        case 'clan': {
+            const sub = options.getSubcommand();
+            let clanResult;
+            switch (sub) {
+                case 'create':
+                    const clanName = options.getString('name');
+                    clanResult = await handleClanCreate(account, clanName);
+                    break;
+                case 'leave':
+                    clanResult = await handleClanLeave(account);
+                    break;
+                case 'disband':
+                    clanResult = await handleClanDisband(account);
+                    break;
+                case 'kick':
+                    const targetUserKick = options.getUser('user');
+                    const targetAccountKick = await getAccount(targetUserKick.id);
+                    if (!targetAccountKick) clanResult = { success: false, message: "That user does not have an economy account." };
+                    else clanResult = await handleClanKick(account, targetAccountKick);
+                    break;
+                case 'recruit':
+                    const status = options.getInteger('status');
+                    clanResult = await handleClanRecruit(account, status);
+                    break;
+                case 'upgrade':
+                    clanResult = await handleClanUpgrade(account);
+                    break;
+                case 'donate':
+                    amount = options.getInteger('amount');
+                    clanResult = await handleClanDonate(account, amount);
+                    break;
+                case 'info':
+                    const codeInfo = options.getString('code');
+                    clanResult = await handleClanInfo(codeInfo);
+                    break;
+                case 'list':
+                    clanResult = await handleClanList();
+                    if (clanResult.success) {
+                        const { discord } = getPaginatedResponse(user.id, 'clan_list', clanResult.lines, 'Clan Browser', 0);
+                        return interaction.editReply(discord);
+                    }
+                    break;
+                case 'war':
+                    clanResult = await handleClanWar();
+                    return interaction.editReply({ content: clanResult.message });
+                case 'join':
+                    const codeJoin = options.getString('code');
+                    clanResult = await handleClanJoin(account, codeJoin);
+                    break;
+                case 'invite':
+                    const targetUserInvite = options.getUser('user');
+                    if (targetUserInvite) {
+                        const targetAccountInvite = await getAccount(targetUserInvite.id);
+                        if (!targetAccountInvite) clanResult = { success: false, message: "That user does not have an economy account." };
+                        else clanResult = await handleClanInvite(account, targetAccountInvite);
+                    } else {
+                        clanResult = await handleClanInvite(account, account.clanId ? 'view' : null);
+                    }
+                    break;
+                case 'accept':
+                    const identifier = options.getString('user_or_code');
+                    clanResult = await handleClanAccept(account, identifier);
+                    break;
+                case 'decline':
+                    const codeDecline = options.getString('code');
+                    clanResult = await handleClanDecline(account, codeDecline);
+                    break;
+            }
+            if (clanResult.embed) {
+                return interaction.editReply({ embeds: [clanResult.embed] });
+            }
+            const clanEmbed = new EmbedBuilder()
+                .setColor(clanResult.success ? '#57F287' : '#ED4245')
+                .setDescription(clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : "An unknown error occurred."));
+            return interaction.editReply({ embeds: [clanEmbed] });
+        }
         case 'info': {
             const name = options.getString('name');
             const itemId = getItemIdByName(name);
@@ -896,12 +1417,12 @@ async function handleSlashCommand(interaction) {
             break;
         }
         case 'market': case 'recipes': case 'crateshop': {
-            let result, title, type;
-            if (commandName === 'market') { const filter = options.getString('filter'); result = await handleMarket(filter); title = filter ? `Market (Filter: ${filter})` : "Market"; type = 'market'; }
-            if (commandName === 'recipes') { const recipeLines = (await handleRecipes()).split('\n'); title = recipeLines.shift(); result = { success: true, lines: recipeLines }; type = 'recipes'; }
-            if (commandName === 'crateshop') { result = await handleCrateShop(); title = "The Collector's Crates"; type = 'crateshop'; }
-            if (!result.success) return interaction.editReply({ content: result.lines[0], components: [] });
-            const { discord } = getPaginatedResponse(user.id, type, result.lines, title, 0);
+            let handlerResult, title, type;
+            if (commandName === 'market') { const filter = options.getString('filter'); handlerResult = await handleMarket(filter); title = filter ? `Market (Filter: ${filter})` : "Market"; type = 'market'; }
+            if (commandName === 'recipes') { const recipeLines = (await handleRecipes()).split('\n'); title = recipeLines.shift(); handlerResult = { success: true, lines: recipeLines }; type = 'recipes'; }
+            if (commandName === 'crateshop') { handlerResult = await handleCrateShop(); title = "The Collector's Crates"; type = 'crateshop'; }
+            if (!handlerResult.success) return interaction.editReply({ content: handlerResult.lines[0], components: [] });
+            const { discord } = getPaginatedResponse(user.id, type, handlerResult.lines, title, 0);
             await interaction.editReply(discord);
             return;
         }
@@ -1151,10 +1672,90 @@ app.post('/command', async (req, res) => {
         };
         
         switch (command) {
+            case 'clan': {
+                const subCommand = args[0]?.toLowerCase() || 'help';
+                const clanArgs = args.slice(1);
+                let clanResult;
+
+                switch (subCommand) {
+                    case 'create':
+                        if (clanArgs.length < 1) { clanResult = { message: "Usage: !clan create <name>" }; break; }
+                        const clanNameOnly = clanArgs.join(' ');
+                        clanResult = await handleClanCreate(account, clanNameOnly);
+                        break;
+                    case 'leave': clanResult = await handleClanLeave(account); break;
+                    case 'disband': clanResult = await handleClanDisband(account); break;
+                    case 'kick':
+                        if (!clanArgs[0]) { clanResult = { message: "Usage: !clan kick <username>" }; break; }
+                        const targetAccKick = await getAccount(clanArgs.join(' '));
+                        if (!targetAccKick) clanResult = { message: "Player not found." };
+                        else clanResult = await handleClanKick(account, targetAccKick);
+                        break;
+                    case 'recruit':
+                        if (!clanArgs[0]) { clanResult = { message: "Usage: !clan recruit <1|2>" }; break; }
+                        clanResult = await handleClanRecruit(account, clanArgs[0]);
+                        break;
+                    case 'upgrade': clanResult = await handleClanUpgrade(account); break;
+                    case 'donate':
+                        const amount = parseInt(clanArgs[0], 10);
+                        clanResult = await handleClanDonate(account, amount);
+                        break;
+                    case 'info':
+                        if (!clanArgs[0]) { clanResult = { message: "Usage: !clan info <code>" }; break; }
+                        clanResult = await handleClanInfo(clanArgs[0]);
+                        // Embeds can't be sent in-game, so we create a text version
+                        if (clanResult.embed) {
+                            const embed = clanResult.embed.data;
+                            let textResponse = [`--- ${embed.title} ---`, embed.description];
+                            embed.fields.forEach(field => {
+                                textResponse.push(`\n${field.name}:`);
+                                textResponse.push(`${field.value}`);
+                            });
+                             clanResult = { message: textResponse.join('\n') };
+                        }
+                        break;
+                    case 'list':
+                        clanResult = await handleClanList();
+                        if (clanResult.success) {
+                            const paginated = getPaginatedResponse(identifier, 'clan_list', clanResult.lines, 'Clan Browser', 0);
+                            return res.json({ reply: paginated.game.map(line => cleanText(line)) });
+                        }
+                        break;
+                    case 'war':
+                        clanResult = await handleClanWar();
+                        break;
+                    case 'join':
+                        if (!clanArgs[0]) { clanResult = { message: "Usage: !clan join <code>" }; break; }
+                        clanResult = await handleClanJoin(account, clanArgs[0]);
+                        break;
+                    case 'invite':
+                        const targetName = clanArgs.join(' ');
+                        if (targetName) {
+                            const targetAccInv = await getAccount(targetName);
+                            if (!targetAccInv) clanResult = { message: "Player not found." };
+                            else clanResult = await handleClanInvite(account, targetAccInv);
+                        } else {
+                            clanResult = await handleClanInvite(account, account.clanId ? 'view' : null);
+                        }
+                        break;
+                    case 'accept':
+                        if (!clanArgs[0]) { clanResult = { message: "Usage: !clan accept <user_or_code>" }; break; }
+                        clanResult = await handleClanAccept(account, clanArgs[0]);
+                        break;
+                    case 'decline':
+                        if (!clanArgs[0]) { clanResult = { message: "Usage: !clan decline <code>" }; break; }
+                        clanResult = await handleClanDecline(account, clanArgs[0]);
+                        break;
+                    default:
+                         clanResult = { message: `Unknown clan command. Use !clan list, !info, etc.` };
+                }
+                responseMessage = clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : 'An error occurred.');
+                break;
+            }
             case 'info': if (args.length === 0) { responseMessage = "Usage: !info <item/trait name>"; break; } const name = args.join(' '); const itemId = getItemIdByName(name); const traitId = Object.keys(TRAITS).find(k => TRAITS[k].name.toLowerCase() === name.toLowerCase()); if (itemId) { responseMessage = cleanText(handleItemInfo(itemId)); } else if (traitId) { const trait = TRAITS[traitId]; let effectText = ''; switch (traitId) { case 'scavenger': effectText = `Grants a 5% chance per level to find bonus resources from /work.`; break; case 'prodigy': effectText = `Reduces /work and /gather cooldowns by 5% per level.`; break; case 'wealth': effectText = `Increases Bits earned from /work by 5% per level.`; break; case 'surveyor': effectText = `Grants a 2% chance per level to double your entire haul from /gather.`; break; case 'collector': effectText = `Increases the bonus reward for first-time crafts by 20% per level.`; break; case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by 50% per level.`; break; case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by 2.5% per level. Stacks decay after 10 minutes.`; break; default: effectText = trait.description.replace(/{.*?}/g, '...'); } responseMessage = [`Trait: ${trait.name} (${trait.rarity})`, effectText, `Max Level: ${trait.maxLevel}`].join('\n'); } else { responseMessage = `Could not find an item or trait named "${name}".`; } break;
             case 'traits': let traitMessage = `Your Traits:\n`; if(account.traits && account.traits.slots) { for (const trait of account.traits.slots) { const t = TRAITS[trait.name]; traitMessage += `> ${t.name} (Level ${trait.level}) - ${t.rarity}\n`; } } else { traitMessage = "You have no traits yet."; } responseMessage = cleanText(traitMessage); break;
             case 'traitroll': if ((account.inventory['trait_reforger'] || 0) < 1) { responseMessage = `You need a Trait Reforger to do this.`; } else { await modifyInventory(username, 'trait_reforger', -1); const newTraits = [rollNewTrait(), rollNewTrait()]; await economyCollection.updateOne({ _id: account._id }, { $set: { 'traits.slots': newTraits } }); let rollMessage = `You consumed a Trait Reforger and received:\n`; for (const trait of newTraits) { const t = TRAITS[trait.name]; rollMessage += `> ${t.name} (Level ${trait.level}) - ${t.rarity}\n`; } responseMessage = cleanText(rollMessage); } break;
-            case 'eat': if (args.length === 0) { responseMessage = "Usage: !eat <food name>"; break; } const foodName = args.join(' '); result = await handleEat(account, foodName); responseMessage = cleanText(result.message); break; case 'm': case 'market': const marketFilter = args.length > 0 ? args.join(' ') : null; result = await handleMarket(marketFilter); if (!result.success) { responseMessage = result.lines[0]; break; } const marketPage = getPaginatedResponse(identifier, 'market', result.lines, marketFilter ? `Market (Filter: ${marketFilter})` : "Market", 0); responseMessage = marketPage.game.map(line => cleanText(line)); break; case 'lb': case 'leaderboard': result = await handleLeaderboard(); if (!result.success) { responseMessage = result.lines[0]; break; } const lbPage = getPaginatedResponse(identifier, 'leaderboard', "Leaderboard", result.lines, 0); responseMessage = lbPage.game.map(line => cleanText(line)); break; case 'recipes': const recipeLines = (await handleRecipes()).split('\n'); const recipeTitle = recipeLines.shift(); result = getPaginatedResponse(identifier, 'recipes', recipeLines, recipeTitle, 0); responseMessage = result.game.map(line => cleanText(line)); break; case 'bal': case 'balance': responseMessage = `Your balance is: **${Math.floor(account.balance)}** ${CURRENCY_NAME}.`; break; case 'work': result = await handleWork(account); responseMessage = result.message; break; case 'gather': result = await handleGather(account); responseMessage = result.message; break; case 'inv': case 'inventory': const invFilter = args.length > 0 ? args.join(' ') : null; responseMessage = cleanText(handleInventory(account, invFilter)); break; 
+            case 'eat': if (args.length === 0) { responseMessage = "Usage: !eat <food name>"; break; } const foodName = args.join(' '); result = await handleEat(account, foodName); responseMessage = cleanText(result.message); break; case 'm': case 'market': const marketFilter = args.length > 0 ? args.join(' ') : null; result = await handleMarket(marketFilter); if (!result.success) { responseMessage = result.lines[0]; break; } const marketPage = getPaginatedResponse(identifier, 'market', result.lines, marketFilter ? `Market (Filter: ${marketFilter})` : "Market", 0); responseMessage = marketPage.game.map(line => cleanText(line)); break; case 'lb': case 'leaderboard': result = await handleLeaderboard(); if (!result.success) { responseMessage = result.lines[0]; break; } const lbPage = getPaginatedResponse(identifier, 'leaderboard', result.lines, "Leaderboard", 0); responseMessage = lbPage.game.map(line => cleanText(line)); break; case 'recipes': const recipeLines = (await handleRecipes()).split('\n'); const recipeTitle = recipeLines.shift(); result = getPaginatedResponse(identifier, 'recipes', recipeLines, recipeTitle, 0); responseMessage = result.game.map(line => cleanText(line)); break; case 'bal': case 'balance': responseMessage = `Your balance is: **${Math.floor(account.balance)}** ${CURRENCY_NAME}.`; break; case 'work': result = await handleWork(account); responseMessage = result.message; break; case 'gather': result = await handleGather(account); responseMessage = result.message; break; case 'inv': case 'inventory': const invFilter = args.length > 0 ? args.join(' ') : null; responseMessage = cleanText(handleInventory(account, invFilter)); break; 
             case 'craft': {
                 if (args.length === 0) { responseMessage = "Usage: !craft <item name> [quantity]"; break; }
                 let quantity = 1;
@@ -1301,6 +1902,8 @@ async function startServer() {
     setInterval(processLootboxVendorTick, LOOTBOX_TICK_INTERVAL_MINUTES * 60 * 1000);
     setInterval(processFinishedSmelting, 5000);
     setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
+    // Start the new Clan War ticker
+    setInterval(() => processClanWarTick(client), 60 * 1000); 
 }
 
 startServer();
