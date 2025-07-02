@@ -817,6 +817,9 @@ async function handleWork(account) {
     return { success: true, message: finalMessage + scavengerLoot };
 }
 
+// =========================================================
+// === FUNCTION TO BE REPLACED (handleGather) ===
+// =========================================================
 async function handleGather(account) {
     let now = Date.now();
     let baseCooldown = GATHER_COOLDOWN_MINUTES * 60 * 1000; 
@@ -856,7 +859,7 @@ async function handleGather(account) {
     const basketCount = account.inventory['gathering_basket'] || 0;
     const maxTypes = MAX_GATHER_TYPES_BASE + basketCount;
     let gatheredItems = [];
-    let updates = {};
+    let incUpdates = {}; // Use a specific name for the $inc payload
     const shuffledItems = Object.keys(GATHER_TABLE).sort(() => 0.5 - secureRandomFloat());
     for (const itemId of shuffledItems) {
         if (gatheredItems.length >= maxTypes) break;
@@ -869,55 +872,62 @@ async function handleGather(account) {
             let bonusQty = 0;
             for (let i = 0; i < basketCount; i++) if (secureRandomFloat() < 0.5) bonusQty++;
             const finalQty = baseQty + bonusQty + abundanceBonus;
-            updates[`inventory.${itemId}`] = (updates[`inventory.${itemId}`] || 0) + finalQty;
+            incUpdates[`inventory.${itemId}`] = (incUpdates[`inventory.${itemId}`] || 0) + finalQty;
             const bonusText = bonusQty > 0 ? ` (+${bonusQty} basket)` : '';
             const clanBonusText = abundanceBonus > 0 ? ` (+${abundanceBonus} clan)` : '';
             gatheredItems.push({id: itemId, qty: finalQty, text: `> ${ITEMS[itemId].emoji} **${finalQty}x** ${ITEMS[itemId].name}${bonusText}${clanBonusText}`});
         }
     }
     
+    let message = '';
     let setUpdates = {};
+    
     if (!cooldownReset) {
         setUpdates.lastGather = now;
     }
-    
-    if (Object.keys(updates).length === 0) { 
-        await updateAccount(account._id, setUpdates); 
-        let msg = 'You searched but found nothing of value.';
-        if (cooldownReset) msg += `\n> ✨ Your clan's **Momentum** perk reset your cooldown!`;
-        return { success: true, message: msg };
+
+    if (gatheredItems.length > 0) {
+        let surveyorDoubled = false;
+        if (surveyorChance > 0 && secureRandomFloat() * 100 < surveyorChance) {
+            surveyorDoubled = true;
+            for (const item of gatheredItems) {
+                incUpdates[`inventory.${item.id}`] = (incUpdates[`inventory.${item.id}`] || 0) + item.qty;
+            }
+        }
+        message = `You gathered:\n${gatheredItems.map(i => i.text).join('\n')}`;
+        if (surveyorDoubled) message += `\n\n**A stroke of luck! Your Surveyor trait doubled the entire haul!**`;
+    } else {
+        message = 'You searched but found nothing of value.';
     }
-    
-    let surveyorDoubled = false;
-    if (surveyorChance > 0 && secureRandomFloat() * 100 < surveyorChance) { surveyorDoubled = true; for (const item of gatheredItems) { updates[`inventory.${item.id}`] = (updates[`inventory.${item.id}`] || 0) + item.qty; } }
-    
-    // Zealot Trait Logic for Gather
+
     const zealotTraitsGather = getActiveTraits(account, 'zealot');
     if (zealotTraitsGather.length > 0) {
-        const ZEAL_DECAY_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
-        let currentZealStacks = account.zeal?.stacks || 0;
+        const ZEAL_DECAY_WINDOW_MS = 10 * 60 * 1000;
         let lastZealAction = account.zeal?.lastAction || 0;
 
         if (now - lastZealAction > ZEAL_DECAY_WINDOW_MS) {
-            currentZealStacks = 0; // Reset stacks if inactive for too long
             message += `\n> ❄️ Your Zeal stacks have reset due to inactivity.`;
         }
-
-        if (!updates.$set) updates.$set = {};
-        if (!updates.$inc) updates.$inc = {};
-
-        updates.$inc['zeal.stacks'] = 1; // Always gain a stack on activity
-        updates.$set['zeal.lastAction'] = now; // Update last action for zeal
+        
+        incUpdates['zeal.stacks'] = (incUpdates['zeal.stacks'] || 0) + 1;
+        setUpdates['zeal.lastAction'] = now;
         message += `\n> 🔥 Your Zealot trait gained a stack!`;
     }
 
-    await economyCollection.updateOne({ _id: account._id }, { $inc: updates, $set: setUpdates });
-    
-    let message = `You gathered:\n${gatheredItems.map(i => i.text).join('\n')}`;
-    if(surveyorDoubled) message += `\n\n**A stroke of luck! Your Surveyor trait doubled the entire haul!**`;
-    if(cooldownReset) message += `\n> ✨ Your clan's **Momentum** perk reset your cooldown!`;
+    if (cooldownReset) message += `\n> ✨ Your clan's **Momentum** perk reset your cooldown!`;
     if (currentGlobalEvent && (currentGlobalEvent.effect.type === 'gather_chance' || currentGlobalEvent.effect.type === 'gather_rare_chance')) {
         message += `\n*(${currentGlobalEvent.name} is active!)*`;
+    }
+
+    let finalUpdatePayload = {};
+    if (Object.keys(incUpdates).length > 0) {
+        finalUpdatePayload.$inc = incUpdates;
+    }
+    if (Object.keys(setUpdates).length > 0) {
+        finalUpdatePayload.$set = setUpdates;
+    }
+    if (Object.keys(finalUpdatePayload).length > 0) {
+        await economyCollection.updateOne({ _id: account._id }, finalUpdatePayload);
     }
 
     if (clan) {
@@ -927,8 +937,9 @@ async function handleGather(account) {
         }
     }
 
-    return { success: true, message: message };
+    return { success: true, message: message.trim() };
 }
+// =========================================================
 
 async function handleHourly(account) {
     const now = Date.now();
