@@ -123,20 +123,20 @@ const LOOTBOXES = {
 // =========================================================================
 // --- CLAN DEFINITIONS & CONFIGURATION ---
 // =========================================================================
-const CLAN_MEMBER_LIMIT = 20;
+const CLAN_MEMBER_LIMIT = 10;
 const CLAN_JOIN_COOLDOWN_HOURS = 1;
 const CLAN_WAR_DURATION_DAYS = 7;
 const CLAN_LEVELS = [
     { level: 1, cost: 0, perks: "Clan Creation" },
-    { level: 2, cost: 5000, perks: "+5% Work Bonus" },
-    { level: 3, cost: 10000, perks: "+2.5% Momentum Chance (Work/Gather Cooldown Reset)" },
-    { level: 4, cost: 25000, perks: "Work Bonus increased to +10%" },
-    { level: 5, cost: 50000, perks: "Slots Max Bet Doubled" },
-    { level: 6, cost: 100000, perks: "+1 Abundance (Bonus item from Gather)" },
-    { level: 7, cost: 250000, perks: "Momentum Chance increased to +5%" },
-    { level: 8, cost: 500000, perks: "Work Bonus increased to +15%" },
-    { level: 9, cost: 1000000, perks: "Abundance increased to +2" },
-    { level: 10, cost: 2500000, perks: "Abundance increased to +5" }
+    { level: 2, cost: 500, perks: "+5% Work Bonus" },
+    { level: 3, cost: 1000, perks: "+2.5% Momentum Chance (Work/Gather Cooldown Reset)" },
+    { level: 4, cost: 3500, perks: "Work Bonus increased to +10%" },
+    { level: 5, cost: 7500, perks: "Slots Max Bet Doubled" },
+    { level: 6, cost: 15000, perks: "+1 Abundance (Bonus item from Gather)" },
+    { level: 7, cost: 27000, perks: "Momentum Chance increased to +5%" },
+    { level: 8, cost: 40000, perks: "Work Bonus increased to +15%" },
+    { level: 9, cost: 70000, perks: "Abundance increased to +2" },
+    { level: 10, cost: 100000, perks: "Abundance increased to +5" }
 ];
 const CLAN_WAR_REWARDS = {
     1: { items: [{ itemId: 'trait_reforger', quantity: 5 }, { itemId: 'crystal_crate', quantity: 3 }] },
