@@ -707,6 +707,9 @@ async function handleWork(account) {
     let now = Date.now();
     let baseCooldown = WORK_COOLDOWN_MINUTES * 60 * 1000;
     let workBonusPercent = 0; let scavengerChance = 0; let cooldownReductionPercent = 0; let momentumChance = 0;
+    
+    // --- ZEALOT MODIFICATION: Variable to store the zeal bonus amount ---
+    let zealBonusAmount = 0;
 
     let clan = null;
     if (account.clanId) {
@@ -725,11 +728,17 @@ async function handleWork(account) {
         getActiveTraits(account, 'wealth').forEach(t => workBonusPercent += 5 * t.level);
         getActiveTraits(account, 'scavenger').forEach(t => scavengerChance += 5 * t.level);
         getActiveTraits(account, 'prodigy').forEach(t => cooldownReductionPercent += 5 * t.level);
+        
+        // --- ZEALOT MODIFICATION: Calculate bonus from current stacks ---
         getActiveTraits(account, 'zealot').forEach(t => {
-            const zealBonus = (account.zeal?.stacks || 0) * (2.5 * t.level);
-            workBonusPercent += zealBonus;
+            const currentStacks = account.zeal?.stacks || 0;
+            const zealBonusPercent = currentStacks * (2.5 * t.level);
+            workBonusPercent += zealBonusPercent;
+            // We store the percentage to show it in the message later
+            zealBonusAmount = zealBonusPercent; 
         });
     }
+
     let currentCooldown = baseCooldown * (1 - cooldownReductionPercent / 100);
     let activeBuffs = (account.activeBuffs || []).filter(buff => buff.expiresAt > now);
     
@@ -758,7 +767,13 @@ async function handleWork(account) {
     const totalPercentBonus = workBonusPercent + (toolBonusPercent * 100);
     const bonusFromPercent = Math.floor(baseEarnings * (totalPercentBonus / 100));
     let totalEarnings = baseEarnings + bonusFromPercent + toolBonusFlat;
+    
+    // --- ZEALOT MODIFICATION: Add Zeal bonus to the text ---
     let bonusText = (bonusFromPercent + toolBonusFlat) > 0 ? ` (+${(bonusFromPercent + toolBonusFlat)} bonus)` : '';
+    if (zealBonusAmount > 0) {
+        bonusText += ` 🔥${zealBonusAmount.toFixed(1)}%`;
+    }
+
     let eventMessage = '';
     if (currentGlobalEvent && currentGlobalEvent.effect.type === 'work') {
         totalEarnings *= currentGlobalEvent.effect.multiplier;
@@ -785,26 +800,38 @@ async function handleWork(account) {
         updates.$inc[`inventory.${loot}`] = qty;
     }
 
-    // Zealot Trait Logic for Work
     const zealotTraitsWork = getActiveTraits(account, 'zealot');
     if (zealotTraitsWork.length > 0) {
-        const ZEAL_DECAY_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+        const ZEAL_DECAY_WINDOW_MS = 10 * 60 * 1000;
         let currentZealStacks = account.zeal?.stacks || 0;
         let lastZealAction = account.zeal?.lastAction || 0;
 
         if (now - lastZealAction > ZEAL_DECAY_WINDOW_MS) {
-            currentZealStacks = 0; // Reset stacks if inactive for too long
+            currentZealStacks = 0;
             finalMessage += `\n> ❄️ Your Zeal stacks have reset due to inactivity.`;
         }
+
+        const newTotalStacks = currentZealStacks + 1;
 
         if (!updates.$set) updates.$set = {};
         if (!updates.$inc) updates.$inc = {};
 
-        updates.$inc['zeal.stacks'] = 1; // Always gain a stack on activity
-        updates.$set['zeal.lastAction'] = now; // Update last action for zeal
-        finalMessage += `\n> 🔥 Your Zealot trait gained a stack!`;
+        updates.$inc['zeal.stacks'] = 1; 
+        updates.$set['zeal.lastAction'] = now;
+        finalMessage += `\n> 🔥 Your Zealot trait is now at **${newTotalStacks}** stack(s)!`;
     }
 
+    await economyCollection.updateOne({_id: account._id}, updates);
+
+    if (clan) {
+        const warState = await serverStateCollection.findOne({ stateKey: "clan_war" });
+        if (warState && new Date() < new Date(warState.warEndTime)) {
+            await clansCollection.updateOne({ _id: clan._id }, { $inc: { warPoints: 1 } });
+        }
+    }
+
+    return { success: true, message: finalMessage + scavengerLoot };
+}
     await economyCollection.updateOne({_id: account._id}, updates);
 
     if (clan) {
@@ -824,6 +851,9 @@ async function handleGather(account) {
     let now = Date.now();
     let baseCooldown = GATHER_COOLDOWN_MINUTES * 60 * 1000; 
     let cooldownReductionPercent = 0; let surveyorChance = 0; let momentumChance = 0; let abundanceBonus = 0;
+    
+    // --- ZEALOT MODIFICATION: Variable to store the zeal bonus amount ---
+    let zealBonusAmount = 0;
 
     let clan = null;
     if (account.clanId) {
@@ -841,11 +871,17 @@ async function handleGather(account) {
     if (account.traits) { 
         getActiveTraits(account, 'prodigy').forEach(t => cooldownReductionPercent += 5 * t.level); 
         getActiveTraits(account, 'surveyor').forEach(t => surveyorChance += 2 * t.level); 
+        
+        // --- ZEALOT MODIFICATION: Calculate bonus from current stacks ---
         getActiveTraits(account, 'zealot').forEach(t => {
-            const zealBonus = (account.zeal?.stacks || 0) * (2.5 * t.level);
-            abundanceBonus += Math.floor(zealBonus / 10); // Example: 10% of zeal bonus adds to abundance
+            const currentStacks = account.zeal?.stacks || 0;
+            const zealBonus = Math.floor((currentStacks * (2.5 * t.level)) / 10);
+            abundanceBonus += zealBonus;
+            // We store the flat bonus to show it in the message later
+            zealBonusAmount = zealBonus;
         });
     }
+
     let currentCooldown = baseCooldown * (1 - cooldownReductionPercent / 100);
     let activeBuffs = (account.activeBuffs || []).filter(buff => buff.expiresAt > now);
     if (activeBuffs.length < (account.activeBuffs || []).length) { await updateAccount(account._id, { activeBuffs }); }
@@ -859,7 +895,7 @@ async function handleGather(account) {
     const basketCount = account.inventory['gathering_basket'] || 0;
     const maxTypes = MAX_GATHER_TYPES_BASE + basketCount;
     let gatheredItems = [];
-    let incUpdates = {}; // Use a specific name for the $inc payload
+    let incUpdates = {}; 
     const shuffledItems = Object.keys(GATHER_TABLE).sort(() => 0.5 - secureRandomFloat());
     for (const itemId of shuffledItems) {
         if (gatheredItems.length >= maxTypes) break;
@@ -873,9 +909,13 @@ async function handleGather(account) {
             for (let i = 0; i < basketCount; i++) if (secureRandomFloat() < 0.5) bonusQty++;
             const finalQty = baseQty + bonusQty + abundanceBonus;
             incUpdates[`inventory.${itemId}`] = (incUpdates[`inventory.${itemId}`] || 0) + finalQty;
+            
+            // --- ZEALOT MODIFICATION: Add Zeal bonus to the text ---
             const bonusText = bonusQty > 0 ? ` (+${bonusQty} basket)` : '';
-            const clanBonusText = abundanceBonus > 0 ? ` (+${abundanceBonus} clan)` : '';
-            gatheredItems.push({id: itemId, qty: finalQty, text: `> ${ITEMS[itemId].emoji} **${finalQty}x** ${ITEMS[itemId].name}${bonusText}${clanBonusText}`});
+            const clanBonusText = abundanceBonus > 0 ? ` (+${abundanceBonus - zealBonusAmount} clan)` : ''; // Subtract zeal to avoid double-counting
+            const zealText = zealBonusAmount > 0 ? ` (+${zealBonusAmount} zeal)` : '';
+            
+            gatheredItems.push({id: itemId, qty: finalQty, text: `> ${ITEMS[itemId].emoji} **${finalQty}x** ${ITEMS[itemId].name}${bonusText}${clanBonusText}${zealText}`});
         }
     }
     
@@ -903,15 +943,19 @@ async function handleGather(account) {
     const zealotTraitsGather = getActiveTraits(account, 'zealot');
     if (zealotTraitsGather.length > 0) {
         const ZEAL_DECAY_WINDOW_MS = 10 * 60 * 1000;
+        let currentZealStacks = account.zeal?.stacks || 0;
         let lastZealAction = account.zeal?.lastAction || 0;
 
         if (now - lastZealAction > ZEAL_DECAY_WINDOW_MS) {
+            currentZealStacks = 0;
             message += `\n> ❄️ Your Zeal stacks have reset due to inactivity.`;
         }
         
+        const newTotalStacks = currentZealStacks + 1;
+
         incUpdates['zeal.stacks'] = (incUpdates['zeal.stacks'] || 0) + 1;
         setUpdates['zeal.lastAction'] = now;
-        message += `\n> 🔥 Your Zealot trait gained a stack!`;
+        message += `\n> 🔥 Your Zealot trait is now at **${newTotalStacks}** stack(s)!`;
     }
 
     if (cooldownReset) message += `\n> ✨ Your clan's **Momentum** perk reset your cooldown!`;
@@ -939,8 +983,6 @@ async function handleGather(account) {
 
     return { success: true, message: message.trim() };
 }
-// =========================================================
-
 async function handleHourly(account) {
     const now = Date.now();
     const hourlyCooldown = HOURLY_COOLDOWN_MINUTES * 60 * 1000;
