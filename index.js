@@ -826,7 +826,6 @@ async function handleWork(account) {
 
     return { success: true, message: finalMessage + scavengerLoot };
 }
-
 async function handleGather(account) {
     let now = Date.now();
     let baseCooldown = GATHER_COOLDOWN_MINUTES * 60 * 1000; 
