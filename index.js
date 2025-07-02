@@ -1,36 +1,4 @@
-async function handleWork(account) {
-    // ... lots of code ...
-    await economyCollection.updateOne({_id: account._id}, updates);
 
-    if (clan) {
-        // ...
-    }
-
-    return { success: true, message: finalMessage + scavengerLoot };
-}
-    // This is the extra, problematic code that was pasted outside the function
-    await economyCollection.updateOne({_id: account._id}, updates);
-
-    if (clan) {
-        //...
-    }
-
-    return { success: true, message: finalMessage + scavengerLoot };
-}
-```
-
-When you replaced the `handleWork` function, you accidentally pasted a large chunk of it *again* right after the function's closing curly brace `}`. This left `await` calls floating in the main script body where they aren't allowed, causing the crash.
-
-### The Fix
-
-The solution is to simply remove the duplicated code block that was pasted outside the `handleWork` function.
-
-Here is the corrected, full script. I've only removed the erroneous, duplicated lines that were between the `handleWork` and `handleGather` functions. Everything else is the same as your last correct version.
-
-```javascript
-// index.js (Final Merged & Upgraded Script with Clans)
-
-// --- Library Imports ---
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
