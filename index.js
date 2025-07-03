@@ -248,6 +248,7 @@ async function handleWork(account) {
     let baseCooldown = WORK_COOLDOWN_MINUTES * 60 * 1000;
     let workBonusPercent = 0; let scavengerChance = 0; let cooldownReductionPercent = 0; let momentumChance = 0;
     let zealBonusAmount = 0;
+    let isDoubleOrNothingActive = false; // Flag for the spicy pepper effect
 
     let clan = null;
     if (account.clanId) {
@@ -287,7 +288,18 @@ async function handleWork(account) {
         }
     }
 
-    for (const buff of activeBuffs) { if (buff.itemId === 'the_addict_rush') workBonusPercent += buff.effects.work_bonus_percent; if (ITEMS[buff.itemId]?.buff?.effects) { if(ITEMS[buff.itemId].buff.effects.work_bonus_percent) workBonusPercent += ITEMS[buff.itemId].buff.effects.work_bonus_percent; if(ITEMS[buff.itemId].buff.effects.work_cooldown_reduction_ms) currentCooldown -= ITEMS[buff.itemId].buff.effects.work_cooldown_reduction_ms; } }
+    for (const buff of activeBuffs) {
+        // Check for the spicy pepper buff
+        if (buff.effects?.work_double_or_nothing) {
+            isDoubleOrNothingActive = true;
+        }
+        // Handle other buffs
+        if (buff.itemId === 'the_addict_rush') workBonusPercent += buff.effects.work_bonus_percent;
+        if (ITEMS[buff.itemId]?.buff?.effects) {
+            if (ITEMS[buff.itemId].buff.effects.work_bonus_percent) workBonusPercent += ITEMS[buff.itemId].buff.effects.work_bonus_percent;
+            if (ITEMS[buff.itemId].buff.effects.work_cooldown_reduction_ms) currentCooldown -= ITEMS[buff.itemId].buff.effects.work_cooldown_reduction_ms;
+        }
+    }
     
     currentCooldown = Math.max(MINIMUM_ACTION_COOLDOWN_MS, currentCooldown);
     
@@ -305,6 +317,18 @@ async function handleWork(account) {
         bonusText += ` 🔥${zealBonusAmount.toFixed(1)}%`;
     }
 
+    // Apply the double or nothing effect from Spicy Pepper
+    let doubleOrNothingMessage = '';
+    if (isDoubleOrNothingActive) {
+        if (secureRandomFloat() < 0.5) { // Win
+            totalEarnings *= 2;
+            doubleOrNothingMessage = `\n> 🌶️ **DOUBLE!** Your Spicy Pepper paid off!`;
+        } else { // Loss
+            totalEarnings = 0;
+            doubleOrNothingMessage = `\n> 🌶️ **NOTHING!** Your Spicy Pepper was a dud!`;
+        }
+    }
+
     let eventMessage = '';
     if (currentGlobalEvent && currentGlobalEvent.effect.type === 'work') {
         totalEarnings *= currentGlobalEvent.effect.multiplier;
@@ -314,6 +338,8 @@ async function handleWork(account) {
     if (!isFinite(totalEarnings) || isNaN(totalEarnings)) { return { success: false, message: "An error occurred calculating earnings." }; }
     
     let finalMessage = `You earned **${Math.round(totalEarnings)}** ${CURRENCY_NAME}${bonusText}!${eventMessage}`;
+    finalMessage += doubleOrNothingMessage; // Append the result of the pepper
+
     let updates = { $inc: { balance: totalEarnings }, $pull: { activeBuffs: { itemId: 'the_addict_rush' } } };
 
     if (!cooldownReset) {
