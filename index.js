@@ -1442,7 +1442,6 @@ async function startServer() {
     setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
     setInterval(() => processClanWarTick(client), 60 * 1000); 
     setInterval(processGridTick, GRID_TICK_INTERVAL_MINUTES * 60 * 1000);
-.
     console.log("Bot is online. Performing initial market price correction in the background...");
     processMarketPriceCorrection(); 
 }
