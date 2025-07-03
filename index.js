@@ -55,7 +55,7 @@ async function connectToDatabase() {
 // =========================================================================
 const CURRENCY_NAME = 'Bits';
 const STARTING_BALANCE = 30;
-const DISCORD_INVITE_LINK = 'https://discord.gg/SvZe9ytB'
+const DISCORD_INVITE_LINK = 'https://discord.gg/gQ7ysW55BV'
 // --- REWARD & STREAK CONSTANTS ---
 const DAILY_REWARD_BASE = 1500;
 const DAILY_STREAK_BONUS = 250;
