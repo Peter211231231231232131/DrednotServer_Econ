@@ -1365,9 +1365,9 @@ async function processGridTick() {
         }
     }
 }
+
 async function startServer() {
     await connectToDatabase();
-    await processMarketPriceCorrection(); // Run market check on startup
 
     app.listen(port, () => console.log(`API server listening on port ${port}!`));
     await client.login(process.env.DISCORD_TOKEN);
@@ -1379,6 +1379,9 @@ async function startServer() {
     setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
     setInterval(() => processClanWarTick(client), 60 * 1000); 
     setInterval(processGridTick, GRID_TICK_INTERVAL_MINUTES * 60 * 1000);
+.
+    console.log("Bot is online. Performing initial market price correction in the background...");
+    processMarketPriceCorrection(); 
 }
 
 startServer();
