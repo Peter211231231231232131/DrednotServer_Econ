@@ -83,6 +83,34 @@ const commands = [
             { type: 1, name: 'decline', description: 'Decline a clan application or invitation.', options: [{ name: 'code', type: 3, description: 'The 5-character code of the clan', required: true }] },
         ]
     },
+    {
+        name: 'grid',
+        description: 'Interact with your Power Grid.',
+        options: [
+            {
+                type: 1,
+                name: 'view',
+                description: 'View your Power Grid status.'
+            },
+            {
+                type: 1,
+                name: 'place',
+                description: 'Place a crafted building onto your grid.',
+                options: [
+                    { name: 'slot', type: 4, description: 'The grid slot to place the building in (1-3).', required: true, choices: [{name: 'Slot 1', value: 1}, {name: 'Slot 2', value: 2}, {name: 'Slot 3', value: 3}] },
+                    { name: 'building', type: 3, description: 'The name of the building to place from your inventory.', required: true, autocomplete: true }
+                ]
+            },
+            {
+                type: 1, 
+                name: 'remove',
+                description: 'Remove a building from a grid slot, returning it to your inventory.',
+                 options: [
+                    { name: 'slot', type: 4, description: 'The grid slot to clear (1-3).', required: true, choices: [{name: 'Slot 1', value: 1}, {name: 'Slot 2', value: 2}, {name: 'Slot 3', value: 3}] }
+                ]
+            },
+        ]
+    }
 ];
 
 const rest = new REST({ version: '10' }).setToken(token);
