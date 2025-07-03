@@ -1040,6 +1040,83 @@ case 'balance': {
     await interaction.editReply({ embeds: [balanceEmbed] });
     break;
 }
+
+case 'grid': {
+    const sub = options.getSubcommand();
+    const powerGrid = account.powerGrid || { slots: [null, null, null] };
+
+    if (sub === 'view') {
+        let generation = 0, consumption = 0, bitsGeneration = 0;
+        const slotDisplays = powerGrid.slots.map((buildingId, index) => {
+            if (!buildingId) return `\`Slot ${index + 1}\` ⚫ Empty`;
+            const building = BUILDINGS[buildingId];
+            generation += building.effects.power_generation || 0;
+            consumption += building.effects.power_consumption || 0;
+            bitsGeneration += building.effects.bits_generation || 0;
+            return `\`Slot ${index + 1}\` ${building.emoji} ${building.name}`;
+        });
+
+        const netPower = generation - consumption;
+        const status = netPower >= 0 ? '✅ Online' : '❌ Offline';
+        const finalBitsGeneration = netPower >= 0 ? bitsGeneration : 0;
+
+        const gridEmbed = new EmbedBuilder()
+            .setColor(netPower >= 0 ? '#57F287' : '#ED4245')
+            .setTitle(`⚡ ${user.username}'s Power Grid`)
+            .setDescription(slotDisplays.join('\n'))
+            .addFields(
+                { name: 'Power Status', value: `Gen: **${generation}**/hr\nUse: **${consumption}**/hr\nNet: **${netPower > 0 ? '+' : ''}${netPower}**/hr`, inline: true },
+                { name: 'System Status', value: `**${status}**`, inline: true },
+                { name: 'Passive Rewards', value: `💰 **+${finalBitsGeneration}** Bits/hr`, inline: true }
+            );
+
+        return interaction.editReply({ embeds: [gridEmbed] });
+    }
+
+    if (sub === 'place') {
+        const slot = options.getInteger('slot');
+        const buildingName = options.getString('building');
+        const buildingId = getItemIdByName(buildingName);
+
+        if (!buildingId || !BUILDINGS[buildingId]) {
+            return interaction.editReply({ content: `"${buildingName}" is not a valid, placeable building.` });
+        }
+        if ((account.inventory[buildingId] || 0) < 1) {
+            return interaction.editReply({ content: `You don't have a ${BUILDINGS[buildingId].name} in your inventory. Craft one first!` });
+        }
+        
+        const slotIndex = slot - 1;
+        const currentGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+
+        if (currentGrid.slots[slotIndex]) {
+            await modifyInventory(account._id, currentGrid.slots[slotIndex], 1);
+        }
+
+        await modifyInventory(account._id, buildingId, -1);
+        currentGrid.slots[slotIndex] = buildingId;
+        await updateAccount(account._id, { powerGrid: currentGrid });
+
+        return interaction.editReply({ content: `Successfully placed ${BUILDINGS[buildingId].emoji} **${BUILDINGS[buildingId].name}** in Slot ${slot}.` });
+    }
+
+    if (sub === 'remove') {
+        const slot = options.getInteger('slot');
+        const slotIndex = slot - 1;
+        const currentGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+
+        const buildingInSlot = currentGrid.slots[slotIndex];
+        if (!buildingInSlot) {
+            return interaction.editReply({ content: `Slot ${slot} is already empty.` });
+        }
+
+        await modifyInventory(account._id, buildingInSlot, 1);
+        currentGrid.slots[slotIndex] = null;
+        await updateAccount(account._id, { powerGrid: currentGrid });
+        
+        return interaction.editReply({ content: `Successfully removed ${ITEMS[buildingInSlot].emoji} **${ITEMS[buildingInSlot].name}** from Slot ${slot}. It has been returned to your inventory.` });
+    }
+    break;
+}
 case 'inventory': {
     const itemNameFilter = options.getString('item_name');
     const targetDiscordUser = options.getUser('user');
@@ -1082,6 +1159,7 @@ case 'inventory': {
     await interaction.editReply({ embeds: [inventoryEmbed] });
     break;
 }
+
 case 'timers': { const timerLines = await handleTimers(account); const timerEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('⏳ Your Cooldowns').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setDescription(timerLines.join('\n')); await interaction.editReply({ embeds: [timerEmbed] }); break; } case 'work': case 'daily': case 'hourly': case 'gather': case 'smelt': case 'eat': case 'flip': case 'slots': case 'craft': case 'pay': { if (commandName === 'work') result = await handleWork(account); if (commandName === 'daily') result = await handleDaily(account); if (commandName === 'hourly') result = await handleHourly(account); if (commandName === 'gather') result = await handleGather(account); if (commandName === 'smelt') { itemName = options.getString('ore_name'); quantity = options.getInteger('quantity'); result = await handleSmelt(account, itemName, quantity); } if (commandName === 'eat') { itemName = options.getString('food_name'); result = await handleEat(account, itemName); } if (commandName === 'flip') { amount = options.getInteger('amount'); choice = options.getString('choice'); result = await handleFlip(account, amount, choice); } if (commandName === 'slots') { amount = options.getInteger('amount'); result = await handleSlots(account, amount); } if (commandName === 'craft') { itemName = options.getString('item_name'); quantity = options.getInteger('quantity') || 1; result = await handleCraft(account, itemName, quantity); } if (commandName === 'pay') { const recipientUser = options.getUser('user'); amount = options.getInteger('amount'); if (recipientUser.bot) { result = { success: false, message: "You can't pay bots." }; } else if (!isFinite(account.balance)) { result = { success: false, message: 'Your account balance is corrupted. Please contact an admin.' }; } else if (!isFinite(amount) || amount <= 0) { result = { success: false, message: 'Please enter a valid, positive amount.' }; } else { const recipientAccount = await getAccount(recipientUser.id); if (!recipientAccount) { result = { success: false, message: `That user doesn't have an economy account yet.` }; } else { result = await handlePay(account, recipientAccount, amount); } } } const responseEmbed = new EmbedBuilder() .setColor(result.success ? '#57F287' : '#ED4245') .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }) .setDescription(result.message); await interaction.editReply({ embeds: [responseEmbed] }); break; } case 'marketsell': { itemName = options.getString('item_name'); quantity = options.getInteger('quantity'); price = options.getNumber('price'); result = await handleMarketSell(account, itemName, quantity, price); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketbuy': { listingId = options.getInteger('listing_id'); result = await handleMarketBuy(account, listingId); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketcancel': { const listingIdToCancel = options.getInteger('listing_id'); result = await handleMarketCancel(account, listingIdToCancel); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'crateshopbuy': { const crateNameToOpenSlash = options.getString('crate_name'); const amountToOpenSlash = options.getInteger('amount'); result = await handleCrateShopBuy(account, crateNameToOpenSlash, amountToOpenSlash); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setTitle(result.success ? `Opened ${amountToOpenSlash}x ${LOOTBOXES[Object.keys(LOOTBOXES).find(k => LOOTBOXES[k].name.toLowerCase() === crateNameToOpenSlash.toLowerCase())].name}` : 'Error').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } } if (isNewUser) { const welcomeEmbed = new EmbedBuilder() .setColor('#57F287') .setTitle('👋 Welcome!') .setDescription(`I've created a temporary economy account for you with a starting balance of **${STARTING_BALANCE} ${CURRENCY_NAME}** and two random traits.\n\nUse \`/traits view\` to see what you got! You can use \`/name\` to set a custom name for the leaderboard if you don't plan on linking a Drednot account.\n\nAlternatively, click the button below to start the process of linking your Drednot.io account.`); const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('guide_link_account').setLabel('Link Drednot Account').setStyle(ButtonStyle.Success).setEmoji('🔗')); await interaction.followUp({ embeds: [welcomeEmbed], components: [row], ephemeral: true }); } }
 
 // =========================================================================
