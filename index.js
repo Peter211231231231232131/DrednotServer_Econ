@@ -1359,20 +1359,15 @@ async function startServer() {
         console.log("Step 1: Connecting to the database...");
         await connectToDatabase();
         
-        console.log("Step 2: Running initial market price correction...");
-        await processMarketPriceCorrection(); // Run market check on startup
-
-        console.log("Step 3: Starting the API web server...");
-        app.listen(port, () => console.log(`   - API server is now listening on port ${port}!`));
-
-        console.log("Step 4: Attempting to log in to Discord...");
+        console.log("Step 2: Attempting to log in to Discord FIRST...");
         await client.login(process.env.DISCORD_TOKEN);
-        // If the line above fails, the code will jump to the 'catch' block.
-        // If it succeeds, it will continue to the next line.
-        
-        console.log("✅✅✅ Discord login successful! ✅✅✅");
+        console.log(`   - ✅✅✅ Discord login successful! Logged in as ${client.user.tag}.`);
 
-        console.log("Step 5: Scheduling all background tasks (ticks)...");
+        console.log("Step 3: Starting the API web server for in-game commands...");
+        app.listen(port, () => console.log(`   - ✅ API server is now listening on port ${port}!`));
+
+        console.log("Step 4: Running background tasks and checks...");
+        await processMarketPriceCorrection(); // Run market check on startup
         setInterval(processZealotDecayTick, 60 * 1000);
         setInterval(processVendorTicks, VENDOR_TICK_INTERVAL_MINUTES * 60 * 1000);
         setInterval(processLootboxVendorTick, LOOTBOX_TICK_INTERVAL_MINUTES * 60 * 1000);
@@ -1380,14 +1375,15 @@ async function startServer() {
         setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
         setInterval(() => processClanWarTick(client), 60 * 1000); 
         setInterval(processGridTick, GRID_TICK_INTERVAL_MINUTES * 60 * 1000);
-        console.log("   - All background tasks are now running.");
-        console.log("🚀 Server is fully operational.");
+        console.log("   - ✅ All background tasks are now running.");
+
+        console.log("\n🚀 Server is fully operational.");
 
     } catch (error) {
-        console.error("❌❌❌ CRITICAL STARTUP FAILED ❌❌❌");
+        console.error("\n❌❌❌ CRITICAL STARTUP FAILED ❌❌❌");
         console.error("An error occurred during the server startup sequence:");
-        console.error(error); // This will print the full error object, including the message and stack trace.
-        process.exit(1); // Exit the application with an error code.
+        console.error(error);
+        process.exit(1);
     }
 }
 
