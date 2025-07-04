@@ -19,7 +19,7 @@ process.on('uncaughtException', (error) => {
 
 // --- Bot & Server Setup ---
 const app = express();
-const port = 3000;
+const port = 3652;
 app.use(express.json());
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers] });
 const YOUR_API_KEY = 'drednot123';
