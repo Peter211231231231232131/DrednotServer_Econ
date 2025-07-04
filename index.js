@@ -21,7 +21,10 @@ process.on('uncaughtException', (error) => {
 const app = express();
 const port = 3000;
 app.use(express.json());
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages
+] });
 const YOUR_API_KEY = 'drednot123';
 
 // =========================================================================
