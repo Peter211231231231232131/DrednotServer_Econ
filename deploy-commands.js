@@ -31,7 +31,7 @@ const commands = [
         options: [
             {
                 name: 'item_name',
-                type: 3, 
+                type: 3, // STRING type
                 description: 'Optional: name of an item to inspect',
                 required: false
             },
@@ -62,6 +62,7 @@ const commands = [
     { name: 'traits', description: 'View or reroll your traits.', options: [ { type: 1, name: 'view', description: 'View your currently equipped traits.' }, { type: 1, name: 'reroll', description: 'Use a Trait Reforger to get two new random traits.' } ] },
     { name: 'crateshop', description: "View The Collector's special crates for sale." },
     { name: 'crateshopbuy', description: 'Buy and open one or more crates from The Collector.', options: [ { name: 'crate_name', type: 3, description: "The name of the crate you want to buy.", required: true, autocomplete: true }, { name: 'amount', type: 4, description: 'The number of crates you want to buy and open.', required: true } ] },
+
     {
         name: 'clan',
         description: 'Manage and interact with clans.',
@@ -101,7 +102,7 @@ const commands = [
                 ]
             },
             {
-                type: 1,
+                type: 1, 
                 name: 'remove',
                 description: 'Remove a building from a grid slot, returning it to your inventory.',
                  options: [
