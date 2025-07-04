@@ -1356,8 +1356,6 @@ async function processGridTick() {
 }
 async function startServer() {
     await connectToDatabase();
-    await processMarketPriceCorrection(); // Run market check on startup
-
     app.listen(port, () => console.log(`API server listening on port ${port}!`));
     await client.login(process.env.DISCORD_TOKEN);
 
