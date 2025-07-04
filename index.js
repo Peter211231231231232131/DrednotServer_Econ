@@ -1355,19 +1355,41 @@ async function processGridTick() {
     }
 }
 async function startServer() {
-    await connectToDatabase();
-    await processMarketPriceCorrection(); // Run market check on startup
+    try {
+        console.log("Step 1: Connecting to the database...");
+        await connectToDatabase();
+        
+        console.log("Step 2: Running initial market price correction...");
+        await processMarketPriceCorrection(); // Run market check on startup
 
-    app.listen(port, () => console.log(`API server listening on port ${port}!`));
-    await client.login(process.env.DISCORD_TOKEN);
+        console.log("Step 3: Starting the API web server...");
+        app.listen(port, () => console.log(`   - API server is now listening on port ${port}!`));
 
-    setInterval(processZealotDecayTick, 60 * 1000);
-    setInterval(processVendorTicks, VENDOR_TICK_INTERVAL_MINUTES * 60 * 1000);
-    setInterval(processLootboxVendorTick, LOOTBOX_TICK_INTERVAL_MINUTES * 60 * 1000);
-    setInterval(processFinishedSmelting, 5000);
-    setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
-    setInterval(() => processClanWarTick(client), 60 * 1000); 
-    setInterval(processGridTick, GRID_TICK_INTERVAL_MINUTES * 60 * 1000);
+        console.log("Step 4: Attempting to log in to Discord...");
+        await client.login(process.env.DISCORD_TOKEN);
+        // If the line above fails, the code will jump to the 'catch' block.
+        // If it succeeds, it will continue to the next line.
+        
+        console.log("✅✅✅ Discord login successful! ✅✅✅");
+
+        console.log("Step 5: Scheduling all background tasks (ticks)...");
+        setInterval(processZealotDecayTick, 60 * 1000);
+        setInterval(processVendorTicks, VENDOR_TICK_INTERVAL_MINUTES * 60 * 1000);
+        setInterval(processLootboxVendorTick, LOOTBOX_TICK_INTERVAL_MINUTES * 60 * 1000);
+        setInterval(processFinishedSmelting, 5000);
+        setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
+        setInterval(() => processClanWarTick(client), 60 * 1000); 
+        setInterval(processGridTick, GRID_TICK_INTERVAL_MINUTES * 60 * 1000);
+        console.log("   - All background tasks are now running.");
+        console.log("🚀 Server is fully operational.");
+
+    } catch (error) {
+        console.error("❌❌❌ CRITICAL STARTUP FAILED ❌❌❌");
+        console.error("An error occurred during the server startup sequence:");
+        console.error(error); // This will print the full error object, including the message and stack trace.
+        process.exit(1); // Exit the application with an error code.
+    }
 }
 
+// Start the entire application
 startServer();
