@@ -21,10 +21,7 @@ process.on('uncaughtException', (error) => {
 const app = express();
 const port = 3000;
 app.use(express.json());
-const client = new Client({ intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages
-] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers] });
 const YOUR_API_KEY = 'drednot123';
 
 // =========================================================================
@@ -1358,37 +1355,19 @@ async function processGridTick() {
     }
 }
 async function startServer() {
-    try {
-        console.log("Step 1: Connecting to the database...");
-        await connectToDatabase();
-        
-        console.log("Step 2: Attempting to log in to Discord FIRST...");
-        await client.login(process.env.DISCORD_TOKEN);
-        console.log(`   - ✅✅✅ Discord login successful! Logged in as ${client.user.tag}.`);
+    await connectToDatabase();
+    await processMarketPriceCorrection(); // Run market check on startup
 
-        console.log("Step 3: Starting the API web server for in-game commands...");
-        app.listen(port, () => console.log(`   - ✅ API server is now listening on port ${port}!`));
+    app.listen(port, () => console.log(`API server listening on port ${port}!`));
+    await client.login(process.env.DISCORD_TOKEN);
 
-        console.log("Step 4: Running background tasks and checks...");
-        await processMarketPriceCorrection(); // Run market check on startup
-        setInterval(processZealotDecayTick, 60 * 1000);
-        setInterval(processVendorTicks, VENDOR_TICK_INTERVAL_MINUTES * 60 * 1000);
-        setInterval(processLootboxVendorTick, LOOTBOX_TICK_INTERVAL_MINUTES * 60 * 1000);
-        setInterval(processFinishedSmelting, 5000);
-        setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
-        setInterval(() => processClanWarTick(client), 60 * 1000); 
-        setInterval(processGridTick, GRID_TICK_INTERVAL_MINUTES * 60 * 1000);
-        console.log("   - ✅ All background tasks are now running.");
-
-        console.log("\n🚀 Server is fully operational.");
-
-    } catch (error) {
-        console.error("\n❌❌❌ CRITICAL STARTUP FAILED ❌❌❌");
-        console.error("An error occurred during the server startup sequence:");
-        console.error(error);
-        process.exit(1);
-    }
+    setInterval(processZealotDecayTick, 60 * 1000);
+    setInterval(processVendorTicks, VENDOR_TICK_INTERVAL_MINUTES * 60 * 1000);
+    setInterval(processLootboxVendorTick, LOOTBOX_TICK_INTERVAL_MINUTES * 60 * 1000);
+    setInterval(processFinishedSmelting, 5000);
+    setInterval(processGlobalEventTick, EVENT_TICK_INTERVAL_MINUTES * 60 * 1000);
+    setInterval(() => processClanWarTick(client), 60 * 1000); 
+    setInterval(processGridTick, GRID_TICK_INTERVAL_MINUTES * 60 * 1000);
 }
 
-// Start the entire application
 startServer();
