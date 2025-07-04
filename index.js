@@ -1356,6 +1356,8 @@ async function processGridTick() {
 }
 async function startServer() {
     await connectToDatabase();
+    console.log(`Attempting to login with token: "[${process.env.DISCORD_TOKEN}]"`);
+    await client.login(process.env.DISCORD_TOKEN);
     app.listen(port, () => console.log(`API server listening on port ${port}!`));
     await client.login(process.env.DISCORD_TOKEN);
 
