@@ -1190,224 +1190,274 @@ async function processMarketPriceCorrection() {
 // --- DISCORD EVENT HANDLERS ---
 // =========================================================================
 client.on('ready', () => console.log(`Discord bot logged in as ${client.user.tag}!`));
-client.on('interactionCreate', async (interaction) => { try { if (interaction.isChatInputCommand()) { await handleSlashCommand(interaction); } else if (interaction.isButton()) { await handleButtonInteraction(interaction); } else if (interaction.isAutocomplete()) { const focusedOption = interaction.options.getFocused(true); let choices = []; if (interaction.commandName === 'craft') { choices = Object.values(ITEMS).filter(i => i.craftable && i.type !== 'building').map(i => i.name); } else if (interaction.commandName === 'eat') { choices = Object.values(ITEMS).filter(i => i.type === 'food').map(i => i.name); } else if (interaction.commandName === 'info') { const itemNames = Object.values(ITEMS).map(i => i.name); const traitNames = Object.values(TRAITS).map(t => t.name); choices = [...itemNames, ...traitNames]; } else if (interaction.commandName === 'marketsell' || interaction.commandName === 'smelt') { choices = Object.values(ITEMS).filter(i => i.type !== 'building').map(i => i.name); } else if (interaction.commandName === 'crateshopbuy' && focusedOption.name === 'crate_name') { const currentListings = await lootboxCollection.find({}).toArray(); const availableCrateIds = new Set(currentListings.map(l => l.lootboxId)); choices = Object.keys(LOOTBOXES).filter(id => availableCrateIds.has(id)).map(id => LOOTBOXES[id].name); } else if (interaction.commandName === 'grid' && focusedOption.name === 'building') { choices = Object.values(BUILDINGS).map(b => b.name); } const filtered = choices.filter(choice => choice.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25); await interaction.respond(filtered.map(choice => ({ name: choice, value: choice }))); } } catch (error) { console.error("Error handling interaction:", error); try { const errorReply = { content: 'An unexpected error occurred!', ephemeral: true, components: [] }; if (interaction.replied || interaction.deferred) { await interaction.followUp(errorReply); } else { await interaction.reply(errorReply); } } catch (e) { console.error("CRITICAL: Could not send error reply to interaction.", e); } } });
+client.on('interactionCreate', async (interaction) => { try { if (interaction.isChatInputCommand()) { await handleSlashCommand(interaction); } else if (interaction.isButton()) { await handleButtonInteraction(interaction); } else if (interaction.isAutocomplete()) { const focusedOption = interaction.options.getFocused(true); let choices = []; if (interaction.commandName === 'craft') { choices = Object.values(ITEMS).filter(i => i.craftable && i.type !== 'building').map(i => i.name); } else if (interaction.commandName === 'eat') { choices = Object.values(ITEMS).filter(i => i.type === 'food').map(i => i.name); } else if (interaction.commandName === 'info') { const itemNames = Object.values(ITEMS).map(i => i.name); const traitNames = Object.values(TRAITS).map(t => t.name); choices = [...itemNames, ...traitNames]; } else if (interaction.commandName === 'marketsell' || interaction.commandName === 'smelt') { choices = Object.values(ITEMS).filter(i => i.type !== 'building').map(i => i.name); } else if (interaction.commandName === 'crateshopbuy' && focusedOption.name === 'crate_name') { const currentListings = await lootboxCollection.find({}).toArray(); const availableCrateIds = new Set(currentListings.map(l => l.lootboxId)); choices = Object.keys(LOOTBOXES).filter(id => availableCrateIds.has(id)).map(id => LOOTBOXES[id].name); } else if (interaction.commandName === 'grid' && focusedOption.name === 'building') { choices = Object.values(BUILDINGS).map(b => b.name); } const filtered = choices.filter(choice => choice.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25); await interaction.respond(filtered.map(choice => ({ name: choice, value: choice }))); } } catch (error) { console.error("Error handling interaction:", error); if (!interaction.replied && !interaction.deferred) { try { await interaction.reply({ content: 'An unexpected error occurred!', ephemeral: true }); } catch (e) { console.error("CRITICAL: Could not send error reply to interaction.", e); } } else { try { await interaction.followUp({ content: 'An unexpected error occurred!', ephemeral: true }); } catch (e) { console.error("CRITICAL: Could not send follow-up error reply to interaction.", e); } } } });
 async function handleButtonInteraction(interaction) { if (interaction.customId.startsWith('paginate_')) { const [action, type, userId] = interaction.customId.split('_'); if (interaction.user.id !== userId) { return interaction.reply({ content: "You cannot use these buttons.", ephemeral: true }); } const session = userPaginationData[userId]; if (!session) { return interaction.update({ content: 'This interactive message has expired or is invalid.', components: [] }); } const pageChange = (type === 'next') ? 1 : -1; const { discord } = getPaginatedResponse(userId, session.type, session.lines, session.title, pageChange); await interaction.update(discord); return; } if (interaction.customId === 'guide_link_account') { const guideMessage = "To link your account, please type `/link` in the chat, select the command, and then enter your exact in-game Drednot name in the `drednot_name` option."; await interaction.reply({ content: guideMessage, ephemeral: true }); return; } }
-async function handleSlashCommand(interaction) { const { commandName, user, options } = interaction; const privateCommands = [ 'link', 'name', 'timers', 'inventory', 'balance', 'traits', 'marketcancel', 'clan' ]; const isPublicClanCommand = commandName === 'clan' && ['war', 'list', 'info'].includes(options.getSubcommand()); if (privateCommands.includes(commandName) && !isPublicClanCommand) { await interaction.deferReply({ ephemeral: true }); } else { await interaction.deferReply(); } let account = await getAccount(user.id); let isNewUser = false; if (!account) { account = await createNewAccount(user.id, 'discord'); isNewUser = true; } else { account = await selfHealAccount(account); } if (account.wasBumped) { await updateAccount(user.id, { wasBumped: false }); const bumpedEmbed = new EmbedBuilder() .setColor('#FEE75C') .setTitle('Display Name Reset!') .setDescription("A player from Drednot has registered with the name you were using. Since Drednot names have priority, your display name has been reset.\nPlease use the `/name` command to choose a new, unique display name, or use `/link` to connect your own Drednot account."); return interaction.editReply({ embeds: [bumpedEmbed] }); } let result, amount, choice, itemName, quantity, price, listingId; switch (commandName) { case 'clan': { const sub = options.getSubcommand(); let clanResult; switch (sub) { case 'create': const clanName = options.getString('name'); clanResult = await handleClanCreate(account, clanName); break; case 'leave': clanResult = await handleClanLeave(account); break; case 'disband': clanResult = await handleClanDisband(account); break; case 'kick': const targetUserKick = options.getUser('user'); const targetAccountKick = await getAccount(targetUserKick.id); if (!targetAccountKick) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanKick(account, targetAccountKick); break; case 'recruit': const status = options.getInteger('status'); clanResult = await handleClanRecruit(account, status); break; case 'upgrade': clanResult = await handleClanUpgrade(account); break; case 'donate': amount = options.getInteger('amount'); clanResult = await handleClanDonate(account, amount); break; case 'info': const codeInfo = options.getString('code'); clanResult = await handleClanInfo(codeInfo); break; case 'list': clanResult = await handleClanList(); if (clanResult.success) { const { discord } = getPaginatedResponse(user.id, 'clan_list', clanResult.lines, 'Clan Browser', 0); return interaction.editReply(discord); } break; case 'war': clanResult = await handleClanWar(); return interaction.editReply({ content: clanResult.message }); case 'join': const codeJoin = options.getString('code'); clanResult = await handleClanJoin(account, codeJoin); break; case 'invite': const targetUserInvite = options.getUser('user'); if (targetUserInvite) { const targetAccountInvite = await getAccount(targetUserInvite.id); if (!targetAccountInvite) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanInvite(account, targetAccountInvite); } else { clanResult = await handleClanInvite(account, account.clanId ? 'view' : null); } break; case 'accept': const identifier = options.getString('user_or_code'); clanResult = await handleClanAccept(account, identifier); break; case 'decline': const codeDecline = options.getString('code'); clanResult = await handleClanDecline(account, codeDecline); break; } if (clanResult.embed) { return interaction.editReply({ embeds: [clanResult.embed] }); } const clanEmbed = new EmbedBuilder() .setColor(clanResult.success ? '#57F287' : '#ED4245') .setDescription(clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : "An unknown error occurred.")); return interaction.editReply({ embeds: [clanEmbed] }); } 
 
-// UPDATED CASE
-case 'info': {
-    const name = options.getString('name');
-    const itemId = getItemIdByName(name);
-    const traitId = Object.keys(TRAITS).find(k => TRAITS[k].name.toLowerCase() === name.toLowerCase());
-    const infoEmbed = new EmbedBuilder().setColor('#3498DB');
+// -----------------------------------------------------------------
+// THIS IS THE FULLY UPDATED AND FIXED FUNCTION
+// -----------------------------------------------------------------
+async function handleSlashCommand(interaction) {
+    const { commandName, user, options } = interaction;
 
-    if (itemId) {
-        const itemInfoString = handleItemInfo(itemId);
-        // The function returns a multi-line string. First line is the title.
-        const lines = itemInfoString.split('\n');
-        const title = lines.shift().replace(/\*\*|/g, ''); // Remove bold markdown
-        const description = lines.join('\n');
-        
-        infoEmbed.setTitle(title.trim());
-        infoEmbed.setDescription(description);
-
-    } else if (traitId) {
-        const trait = TRAITS[traitId];
-        let effectText = '';
-        switch (traitId) {
-            case 'scavenger': effectText = `Grants a **5%** chance per level to find bonus resources from /work.`; break;
-            case 'prodigy': effectText = `Reduces /work and /gather cooldowns by **5%** per level.`; break;
-            case 'wealth': effectText = `Increases Bits earned from /work by **5%** per level.`; break;
-            case 'surveyor': effectText = `Grants a **2%** chance per level to double your entire haul from /gather.`; break;
-            case 'collector': effectText = `Increases the bonus reward for first-time crafts by **20%** per level.`; break;
-            case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by **50%** per level.`; break;
-            case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by **2.5%** per level. Stacks reset if inactive for 10 minutes.`; break;
-            default: effectText = trait.description.replace(/{.*?}/g, '...');
-        }
-        infoEmbed.setTitle(`🧬 ${trait.name} (${trait.rarity})`)
-            .setDescription(effectText)
-            .addFields({ name: 'Max Level', value: String(trait.maxLevel), inline: true });
-    } else {
-        infoEmbed.setColor('#ED4245').setTitle('Not Found').setDescription(`Could not find an item or trait named "${name}".`);
-    }
-    return interaction.editReply({ embeds: [infoEmbed] });
-}
-
-case 'traits': { const sub = options.getSubcommand(); if (sub === 'view') { const traitEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('🧬 Your Traits').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }); if (account.traits && account.traits.slots) { const traitFields = account.traits.slots.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); traitEmbed.addFields(traitFields); } else { traitEmbed.setDescription("You have no traits yet."); } return interaction.editReply({ embeds: [traitEmbed] }); } if (sub === 'reroll') { if ((account.inventory['trait_reforger'] || 0) < 1) { const errorEmbed = new EmbedBuilder().setColor('#ED4245').setTitle('Missing Item').setDescription('You need a ✨ Trait Reforger to do this. Get them from `/gather`!'); return interaction.editReply({ embeds: [errorEmbed] }); } await modifyInventory(user.id, 'trait_reforger', -1); const newTraits = [rollNewTrait(), rollNewTrait()]; await economyCollection.updateOne({ _id: account._id }, { $set: { 'traits.slots': newTraits } }); const successEmbed = new EmbedBuilder().setColor('#57F287').setTitle('✨ Traits Reforged!'); const traitFields = newTraits.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); successEmbed.setDescription('You consumed a Trait Reforger and received:').addFields(traitFields); return interaction.editReply({ embeds: [successEmbed] }); } break; } case 'market': case 'recipes': case 'crateshop': { let handlerResult, title, type; if (commandName === 'market') { const filter = options.getString('filter'); handlerResult = await handleMarket(filter); title = filter ? `Market (Filter: ${filter})` : "Market"; type = 'market'; } if (commandName === 'recipes') { const recipeLines = (await handleRecipes()).split('\n'); title = recipeLines.shift(); handlerResult = { success: true, lines: recipeLines }; type = 'recipes'; } if (commandName === 'crateshop') { handlerResult = await handleCrateShop(); title = "The Collector's Crates"; type = 'crateshop'; } if (!handlerResult.success) return interaction.editReply({ content: handlerResult.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, type, handlerResult.lines, title, 0); await interaction.editReply(discord); return; } case 'leaderboard': { const result = await handleLeaderboard(); if (!result.success) return interaction.editReply({ content: result.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, 'leaderboard', result.lines, 'Leaderboard', 0); await interaction.editReply(discord); return; } case 'link': { const drednotNameToLink = options.getString('drednot_name'); if (account.drednotName) { return interaction.editReply({ content: `Your Discord account is already linked to the Drednot account **${account.drednotName}**.` }); } const targetDrednotAccount = await getAccount(drednotNameToLink); if (targetDrednotAccount && targetDrednotAccount.discordId) { return interaction.editReply({ content: `The Drednot account **${drednotNameToLink}** is already linked to another Discord user.` }); } const verificationCode = `${Math.floor(1000 + Math.random() * 9000)}`; await verificationsCollection.insertOne({ _id: verificationCode, discordId: user.id, drednotName: drednotNameToLink, timestamp: Date.now() }); let replyMessage = `**Account Verification Started!**\n\n` + `1. **[Click here to join the verification ship!](${DREDNOT_INVITE_LINK})**\n\n` + `2. Once in-game, copy and paste the following command into the chat:\n` + `\`\`\`\n` + `!verify ${verificationCode}\n` + `\`\`\`\n` + `This code expires in 5 minutes.`; if (!isNewUser) { replyMessage += `\n\n**Note:** You have progress on this Discord account. Verifying will merge it with your **${drednotNameToLink}** account.` } await interaction.editReply({ content: replyMessage }); return; } case 'name': { if (account.drednotName) { return interaction.editReply({ content: `You cannot set a display name because your account is already linked to **${account.drednotName}**. That name is used on the leaderboard.` }); } const newName = options.getString('new_name'); if (newName.length < 3 || newName.length > 16) { return interaction.editReply({ content: 'Your name must be between 3 and 16 characters long.' }); } const existingNameAccount = await economyCollection.findOne({ $or: [ { drednotName: new RegExp(`^${newName}$`, 'i') }, { displayName: new RegExp(`^${newName}$`, 'i') } ] }); if (existingNameAccount) { return interaction.editReply({ content: `That name is already in use by another player. Please choose a different name.` }); } await updateAccount(user.id, { displayName: newName }); return interaction.editReply({ content: `Success! Your display name has been set to **${newName}**.` }); } 
-case 'balance': {
-    const targetDiscordUser = options.getUser('user');
-    let targetAccount = account;
-    let userForDisplay = user;
-
-    if (targetDiscordUser) {
-        const foundAccount = await getAccount(targetDiscordUser.id);
-        if (foundAccount) {
-            targetAccount = await selfHealAccount(foundAccount);
-            userForDisplay = targetDiscordUser;
-        } else {
-            const errorEmbed = new EmbedBuilder()
-                .setColor('#ED4245')
-                .setDescription(`The user ${targetDiscordUser.username} does not have an economy account yet.`);
-            return interaction.editReply({ embeds: [errorEmbed], ephemeral: true });
-        }
-    }
-
-    const title = (targetAccount._id === account._id) ? '💰 Your Wallet' : `💰 ${userForDisplay.username}'s Wallet`;
-
-    const balanceEmbed = new EmbedBuilder()
-        .setColor('#3498DB')
-        .setTitle(title)
-        .setAuthor({ name: userForDisplay.username, iconURL: userForDisplay.displayAvatarURL() })
-        .addFields({ name: 'Current Balance', value: `**${Math.floor(targetAccount.balance)}** ${CURRENCY_NAME}` });
-    await interaction.editReply({ embeds: [balanceEmbed] });
-    break;
-}
-
-// UPDATED CASE
-case 'grid': {
-    const sub = options.getSubcommand();
-    const powerGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
-
-    if (sub === 'view') {
-        let generation = 0, consumption = 0, bitsGeneration = 0;
-        const slotDisplays = powerGrid.slots.map((buildingId, index) => {
-            if (!buildingId) return `\`Slot ${index + 1}\` ⚫ Empty`;
-            const building = BUILDINGS[buildingId];
-            generation += building.effects.power_generation || 0;
-            consumption += building.effects.power_consumption || 0;
-            bitsGeneration += building.effects.bits_generation || 0;
-            return `\`Slot ${index + 1}\` ${building.emoji} ${building.name}`;
-        });
-
-        const netPower = generation - consumption;
-        const status = netPower >= 0 ? '✅ Online' : '❌ Offline';
-        const finalBitsGeneration = netPower >= 0 ? bitsGeneration : 0;
-        const currentSlots = powerGrid.slots.length;
-        
-        let upgradeFooter = `Your grid is max level (6 slots).`;
-        if (currentSlots < GRID_MAX_SLOTS) {
-            const upgradeCost = GRID_UPGRADE_COSTS[currentSlots];
-            upgradeFooter = `Upgrade to ${currentSlots + 1} slots for ${upgradeCost.toLocaleString()} Bits with /grid upgrade`;
-        }
-
-        const gridEmbed = new EmbedBuilder()
-            .setColor(netPower >= 0 ? '#57F287' : '#ED4245')
-            .setTitle(`⚡ ${user.username}'s Power Grid (${currentSlots}/${GRID_MAX_SLOTS} Slots)`)
-            .setDescription(slotDisplays.join('\n'))
-            .addFields(
-                { name: 'Power Status', value: `Gen: **${generation}**/hr\nUse: **${consumption}**/hr\nNet: **${netPower > 0 ? '+' : ''}${netPower}**/hr`, inline: true },
-                { name: 'System Status', value: `**${status}**`, inline: true },
-                { name: 'Passive Rewards', value: `💰 **+${finalBitsGeneration}** Bits/hr`, inline: true }
-            )
-            .setFooter({ text: upgradeFooter });
-
-        return interaction.editReply({ embeds: [gridEmbed] });
-    }
+    // --- DEFER IMMEDIATELY ---
+    // This is the most important change to prevent the "Unknown Interaction" error.
+    const privateCommands = ['link', 'name', 'timers', 'inventory', 'balance', 'traits', 'marketcancel', 'clan'];
+    const isPublicClanCommand = commandName === 'clan' && ['war', 'list', 'info'].includes(options.getSubcommand());
     
-    if (sub === 'upgrade') {
-        const result = await handleGridUpgrade(account);
-        const embed = new EmbedBuilder()
-            .setColor(result.success ? '#57F287' : '#ED4245')
-            .setDescription(result.message);
-        return interaction.editReply({ embeds: [embed] });
-    }
-
-    if (sub === 'place') {
-        const slot = options.getInteger('slot');
-        const buildingName = options.getString('building');
-        const buildingId = getItemIdByName(buildingName);
-        const currentSlots = powerGrid.slots.length;
-
-        if (slot > currentSlots) {
-             return interaction.editReply({ content: `You only have ${currentSlots} grid slots. You cannot place in slot ${slot}.` });
-        }
-        if (!buildingId || !BUILDINGS[buildingId]) {
-            return interaction.editReply({ content: `"${buildingName}" is not a valid, placeable building.` });
-        }
-        if ((account.inventory[buildingId] || 0) < 1) {
-            return interaction.editReply({ content: `You don't have a ${BUILDINGS[buildingId].name} in your inventory. Craft one first!` });
-        }
-        
-        const slotIndex = slot - 1;
-        const currentGrid = account.powerGrid || { slots: [], lastTick: Date.now() };
-
-        if (currentGrid.slots[slotIndex]) {
-            await modifyInventory(account._id, currentGrid.slots[slotIndex], 1);
-        }
-
-        await modifyInventory(account._id, buildingId, -1);
-        currentGrid.slots[slotIndex] = buildingId;
-        await updateAccount(account._id, { powerGrid: currentGrid });
-
-        return interaction.editReply({ content: `Successfully placed ${BUILDINGS[buildingId].emoji} **${BUILDINGS[buildingId].name}** in Slot ${slot}.` });
-    }
-
-    if (sub === 'remove') {
-        const slot = options.getInteger('slot');
-        const slotIndex = slot - 1;
-        const currentGrid = account.powerGrid || { slots: [], lastTick: Date.now() };
-
-        if (slot > currentGrid.slots.length) {
-             return interaction.editReply({ content: `Invalid slot. You only have ${currentGrid.slots.length} slots.` });
-        }
-        const buildingInSlot = currentGrid.slots[slotIndex];
-        if (!buildingInSlot) {
-            return interaction.editReply({ content: `Slot ${slot} is already empty.` });
-        }
-
-        await modifyInventory(account._id, buildingInSlot, 1);
-        currentGrid.slots[slotIndex] = null;
-        await updateAccount(account._id, { powerGrid: currentGrid });
-        
-        return interaction.editReply({ content: `Successfully removed ${ITEMS[buildingInSlot].emoji} **${ITEMS[buildingInSlot].name}** from Slot ${slot}. It has been returned to your inventory.` });
-    }
-    break;
-}
-
-case 'inventory': {
-    const itemNameFilter = options.getString('item_name');
-    const targetDiscordUser = options.getUser('user');
-    let targetAccount = account;
-    let userForDisplay = user;
-
-    if (targetDiscordUser) {
-        const foundAccount = await getAccount(targetDiscordUser.id);
-        if (foundAccount) {
-            targetAccount = await selfHealAccount(foundAccount);
-            userForDisplay = targetDiscordUser;
-        } else {
-            const errorEmbed = new EmbedBuilder()
-                .setColor('#ED4245')
-                .setDescription(`The user ${targetDiscordUser.username} does not have an economy account yet.`);
-            return interaction.editReply({ embeds: [errorEmbed], ephemeral: true });
-        }
-    }
-    
-    let inventoryContent = handleInventory(targetAccount, itemNameFilter);
-
-    if (targetAccount._id !== account._id) {
-        inventoryContent = inventoryContent
-            .replace('Your inventory is empty.', 'This user\'s inventory is empty.')
-            .replace(/You have no items matching ".*"/, `This user has no items matching "${itemNameFilter}".`);
-    }
-
-    let title;
-    if (targetAccount._id === account._id) {
-        title = itemNameFilter ? `🎒 Your Inventory (Filtered by: ${itemNameFilter})` : '🎒 Your Inventory';
+    // FIX for deprecated `ephemeral` option. Use flags instead.
+    if (privateCommands.includes(commandName) && !isPublicClanCommand) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } else {
-        title = itemNameFilter ? `🎒 ${userForDisplay.username}'s Inventory (Filtered by: ${itemNameFilter})` : `🎒 ${userForDisplay.username}'s Inventory`;
+        await interaction.deferReply();
+    }
+    // Now that we've deferred, we have 15 minutes to do the rest.
+
+    // --- The rest of your logic can now run safely ---
+    let account = await getAccount(user.id);
+    let isNewUser = false;
+    if (!account) {
+        account = await createNewAccount(user.id, 'discord');
+        isNewUser = true;
+    } else {
+        account = await selfHealAccount(account);
     }
 
-    const inventoryEmbed = new EmbedBuilder()
-        .setColor('#3498DB')
-        .setTitle(title)
-        .setAuthor({ name: userForDisplay.username, iconURL: userForDisplay.displayAvatarURL() })
-        .setDescription(inventoryContent);
-    await interaction.editReply({ embeds: [inventoryEmbed] });
-    break;
+    if (account.wasBumped) {
+        await updateAccount(user.id, { wasBumped: false });
+        const bumpedEmbed = new EmbedBuilder()
+            .setColor('#FEE75C')
+            .setTitle('Display Name Reset!')
+            .setDescription("A player from Drednot has registered with the name you were using. Since Drednot names have priority, your display name has been reset.\nPlease use the `/name` command to choose a new, unique display name, or use `/link` to connect your own Drednot account.");
+        return interaction.editReply({ embeds: [bumpedEmbed] });
+    }
+
+    let result, amount, choice, itemName, quantity, price, listingId;
+    switch (commandName) {
+        case 'clan': { const sub = options.getSubcommand(); let clanResult; switch (sub) { case 'create': const clanName = options.getString('name'); clanResult = await handleClanCreate(account, clanName); break; case 'leave': clanResult = await handleClanLeave(account); break; case 'disband': clanResult = await handleClanDisband(account); break; case 'kick': const targetUserKick = options.getUser('user'); const targetAccountKick = await getAccount(targetUserKick.id); if (!targetAccountKick) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanKick(account, targetAccountKick); break; case 'recruit': const status = options.getInteger('status'); clanResult = await handleClanRecruit(account, status); break; case 'upgrade': clanResult = await handleClanUpgrade(account); break; case 'donate': amount = options.getInteger('amount'); clanResult = await handleClanDonate(account, amount); break; case 'info': const codeInfo = options.getString('code'); clanResult = await handleClanInfo(codeInfo); break; case 'list': clanResult = await handleClanList(); if (clanResult.success) { const { discord } = getPaginatedResponse(user.id, 'clan_list', clanResult.lines, 'Clan Browser', 0); return interaction.editReply(discord); } break; case 'war': clanResult = await handleClanWar(); return interaction.editReply({ content: clanResult.message }); case 'join': const codeJoin = options.getString('code'); clanResult = await handleClanJoin(account, codeJoin); break; case 'invite': const targetUserInvite = options.getUser('user'); if (targetUserInvite) { const targetAccountInvite = await getAccount(targetUserInvite.id); if (!targetAccountInvite) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanInvite(account, targetAccountInvite); } else { clanResult = await handleClanInvite(account, account.clanId ? 'view' : null); } break; case 'accept': const identifier = options.getString('user_or_code'); clanResult = await handleClanAccept(account, identifier); break; case 'decline': const codeDecline = options.getString('code'); clanResult = await handleClanDecline(account, codeDecline); break; } if (clanResult.embed) { return interaction.editReply({ embeds: [clanResult.embed] }); } const clanEmbed = new EmbedBuilder() .setColor(clanResult.success ? '#57F287' : '#ED4245') .setDescription(clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : "An unknown error occurred.")); return interaction.editReply({ embeds: [clanEmbed] }); } 
+
+        case 'info': {
+            const name = options.getString('name');
+            const itemId = getItemIdByName(name);
+            const traitId = Object.keys(TRAITS).find(k => TRAITS[k].name.toLowerCase() === name.toLowerCase());
+            const infoEmbed = new EmbedBuilder().setColor('#3498DB');
+
+            if (itemId) {
+                const itemInfoString = handleItemInfo(itemId);
+                const lines = itemInfoString.split('\n');
+                const title = lines.shift().replace(/\*\*|/g, '');
+                const description = lines.join('\n');
+                
+                infoEmbed.setTitle(title.trim());
+                infoEmbed.setDescription(description);
+
+            } else if (traitId) {
+                const trait = TRAITS[traitId];
+                let effectText = '';
+                switch (traitId) {
+                    case 'scavenger': effectText = `Grants a **5%** chance per level to find bonus resources from /work.`; break;
+                    case 'prodigy': effectText = `Reduces /work and /gather cooldowns by **5%** per level.`; break;
+                    case 'wealth': effectText = `Increases Bits earned from /work by **5%** per level.`; break;
+                    case 'surveyor': effectText = `Grants a **2%** chance per level to double your entire haul from /gather.`; break;
+                    case 'collector': effectText = `Increases the bonus reward for first-time crafts by **20%** per level.`; break;
+                    case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by **50%** per level.`; break;
+                    case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by **2.5%** per level. Stacks reset if inactive for 10 minutes.`; break;
+                    default: effectText = trait.description.replace(/{.*?}/g, '...');
+                }
+                infoEmbed.setTitle(`🧬 ${trait.name} (${trait.rarity})`)
+                    .setDescription(effectText)
+                    .addFields({ name: 'Max Level', value: String(trait.maxLevel), inline: true });
+            } else {
+                infoEmbed.setColor('#ED4245').setTitle('Not Found').setDescription(`Could not find an item or trait named "${name}".`);
+            }
+            return interaction.editReply({ embeds: [infoEmbed] });
+        }
+
+        case 'traits': { const sub = options.getSubcommand(); if (sub === 'view') { const traitEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('🧬 Your Traits').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }); if (account.traits && account.traits.slots) { const traitFields = account.traits.slots.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); traitEmbed.addFields(traitFields); } else { traitEmbed.setDescription("You have no traits yet."); } return interaction.editReply({ embeds: [traitEmbed] }); } if (sub === 'reroll') { if ((account.inventory['trait_reforger'] || 0) < 1) { const errorEmbed = new EmbedBuilder().setColor('#ED4245').setTitle('Missing Item').setDescription('You need a ✨ Trait Reforger to do this. Get them from `/gather`!'); return interaction.editReply({ embeds: [errorEmbed] }); } await modifyInventory(user.id, 'trait_reforger', -1); const newTraits = [rollNewTrait(), rollNewTrait()]; await economyCollection.updateOne({ _id: account._id }, { $set: { 'traits.slots': newTraits } }); const successEmbed = new EmbedBuilder().setColor('#57F287').setTitle('✨ Traits Reforged!'); const traitFields = newTraits.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); successEmbed.setDescription('You consumed a Trait Reforger and received:').addFields(traitFields); return interaction.editReply({ embeds: [successEmbed] }); } break; } case 'market': case 'recipes': case 'crateshop': { let handlerResult, title, type; if (commandName === 'market') { const filter = options.getString('filter'); handlerResult = await handleMarket(filter); title = filter ? `Market (Filter: ${filter})` : "Market"; type = 'market'; } if (commandName === 'recipes') { const recipeLines = (await handleRecipes()).split('\n'); title = recipeLines.shift(); handlerResult = { success: true, lines: recipeLines }; type = 'recipes'; } if (commandName === 'crateshop') { handlerResult = await handleCrateShop(); title = "The Collector's Crates"; type = 'crateshop'; } if (!handlerResult.success) return interaction.editReply({ content: handlerResult.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, type, handlerResult.lines, title, 0); await interaction.editReply(discord); return; } case 'leaderboard': { const result = await handleLeaderboard(); if (!result.success) return interaction.editReply({ content: result.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, 'leaderboard', result.lines, 'Leaderboard', 0); await interaction.editReply(discord); return; } case 'link': { const drednotNameToLink = options.getString('drednot_name'); if (account.drednotName) { return interaction.editReply({ content: `Your Discord account is already linked to the Drednot account **${account.drednotName}**.` }); } const targetDrednotAccount = await getAccount(drednotNameToLink); if (targetDrednotAccount && targetDrednotAccount.discordId) { return interaction.editReply({ content: `The Drednot account **${drednotNameToLink}** is already linked to another Discord user.` }); } const verificationCode = `${Math.floor(1000 + Math.random() * 9000)}`; await verificationsCollection.insertOne({ _id: verificationCode, discordId: user.id, drednotName: drednotNameToLink, timestamp: Date.now() }); let replyMessage = `**Account Verification Started!**\n\n` + `1. **[Click here to join the verification ship!](${DREDNOT_INVITE_LINK})**\n\n` + `2. Once in-game, copy and paste the following command into the chat:\n` + `\`\`\`\n` + `!verify ${verificationCode}\n` + `\`\`\`\n` + `This code expires in 5 minutes.`; if (!isNewUser) { replyMessage += `\n\n**Note:** You have progress on this Discord account. Verifying will merge it with your **${drednotNameToLink}** account.` } await interaction.editReply({ content: replyMessage }); return; } case 'name': { if (account.drednotName) { return interaction.editReply({ content: `You cannot set a display name because your account is already linked to **${account.drednotName}**. That name is used on the leaderboard.` }); } const newName = options.getString('new_name'); if (newName.length < 3 || newName.length > 16) { return interaction.editReply({ content: 'Your name must be between 3 and 16 characters long.' }); } const existingNameAccount = await economyCollection.findOne({ $or: [ { drednotName: new RegExp(`^${newName}$`, 'i') }, { displayName: new RegExp(`^${newName}$`, 'i') } ] }); if (existingNameAccount) { return interaction.editReply({ content: `That name is already in use by another player. Please choose a different name.` }); } await updateAccount(user.id, { displayName: newName }); return interaction.editReply({ content: `Success! Your display name has been set to **${newName}**.` }); } 
+        case 'balance': {
+            const targetDiscordUser = options.getUser('user');
+            let targetAccount = account;
+            let userForDisplay = user;
+
+            if (targetDiscordUser) {
+                const foundAccount = await getAccount(targetDiscordUser.id);
+                if (foundAccount) {
+                    targetAccount = await selfHealAccount(foundAccount);
+                    userForDisplay = targetDiscordUser;
+                } else {
+                    const errorEmbed = new EmbedBuilder()
+                        .setColor('#ED4245')
+                        .setDescription(`The user ${targetDiscordUser.username} does not have an economy account yet.`);
+                    return interaction.editReply({ embeds: [errorEmbed], ephemeral: true });
+                }
+            }
+
+            const title = (targetAccount._id === account._id) ? '💰 Your Wallet' : `💰 ${userForDisplay.username}'s Wallet`;
+
+            const balanceEmbed = new EmbedBuilder()
+                .setColor('#3498DB')
+                .setTitle(title)
+                .setAuthor({ name: userForDisplay.username, iconURL: userForDisplay.displayAvatarURL() })
+                .addFields({ name: 'Current Balance', value: `**${Math.floor(targetAccount.balance)}** ${CURRENCY_NAME}` });
+            await interaction.editReply({ embeds: [balanceEmbed] });
+            break;
+        }
+
+        case 'grid': {
+            const sub = options.getSubcommand();
+            const powerGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+
+            if (sub === 'view') {
+                let generation = 0, consumption = 0, bitsGeneration = 0;
+                const slotDisplays = powerGrid.slots.map((buildingId, index) => {
+                    if (!buildingId) return `\`Slot ${index + 1}\` ⚫ Empty`;
+                    const building = BUILDINGS[buildingId];
+                    generation += building.effects.power_generation || 0;
+                    consumption += building.effects.power_consumption || 0;
+                    bitsGeneration += building.effects.bits_generation || 0;
+                    return `\`Slot ${index + 1}\` ${building.emoji} ${building.name}`;
+                });
+
+                const netPower = generation - consumption;
+                const status = netPower >= 0 ? '✅ Online' : '❌ Offline';
+                const finalBitsGeneration = netPower >= 0 ? bitsGeneration : 0;
+                const currentSlots = powerGrid.slots.length;
+                
+                let upgradeFooter = `Your grid is max level (6 slots).`;
+                if (currentSlots < GRID_MAX_SLOTS) {
+                    const upgradeCost = GRID_UPGRADE_COSTS[currentSlots];
+                    upgradeFooter = `Upgrade to ${currentSlots + 1} slots for ${upgradeCost.toLocaleString()} Bits with /grid upgrade`;
+                }
+
+                const gridEmbed = new EmbedBuilder()
+                    .setColor(netPower >= 0 ? '#57F287' : '#ED4245')
+                    .setTitle(`⚡ ${user.username}'s Power Grid (${currentSlots}/${GRID_MAX_SLOTS} Slots)`)
+                    .setDescription(slotDisplays.join('\n'))
+                    .addFields(
+                        { name: 'Power Status', value: `Gen: **${generation}**/hr\nUse: **${consumption}**/hr\nNet: **${netPower > 0 ? '+' : ''}${netPower}**/hr`, inline: true },
+                        { name: 'System Status', value: `**${status}**`, inline: true },
+                        { name: 'Passive Rewards', value: `💰 **+${finalBitsGeneration}** Bits/hr`, inline: true }
+                    )
+                    .setFooter({ text: upgradeFooter });
+
+                return interaction.editReply({ embeds: [gridEmbed] });
+            }
+            
+            if (sub === 'upgrade') {
+                const result = await handleGridUpgrade(account);
+                const embed = new EmbedBuilder()
+                    .setColor(result.success ? '#57F287' : '#ED4245')
+                    .setDescription(result.message);
+                return interaction.editReply({ embeds: [embed] });
+            }
+
+            if (sub === 'place') {
+                const slot = options.getInteger('slot');
+                const buildingName = options.getString('building');
+                const buildingId = getItemIdByName(buildingName);
+                const currentSlots = powerGrid.slots.length;
+
+                if (slot > currentSlots) {
+                    return interaction.editReply({ content: `You only have ${currentSlots} grid slots. You cannot place in slot ${slot}.` });
+                }
+                if (!buildingId || !BUILDINGS[buildingId]) {
+                    return interaction.editReply({ content: `"${buildingName}" is not a valid, placeable building.` });
+                }
+                if ((account.inventory[buildingId] || 0) < 1) {
+                    return interaction.editReply({ content: `You don't have a ${BUILDINGS[buildingId].name} in your inventory. Craft one first!` });
+                }
+                
+                const slotIndex = slot - 1;
+                const currentGrid = account.powerGrid || { slots: [], lastTick: Date.now() };
+
+                if (currentGrid.slots[slotIndex]) {
+                    await modifyInventory(account._id, currentGrid.slots[slotIndex], 1);
+                }
+
+                await modifyInventory(account._id, buildingId, -1);
+                currentGrid.slots[slotIndex] = buildingId;
+                await updateAccount(account._id, { powerGrid: currentGrid });
+
+                return interaction.editReply({ content: `Successfully placed ${BUILDINGS[buildingId].emoji} **${BUILDINGS[buildingId].name}** in Slot ${slot}.` });
+            }
+
+            if (sub === 'remove') {
+                const slot = options.getInteger('slot');
+                const slotIndex = slot - 1;
+                const currentGrid = account.powerGrid || { slots: [], lastTick: Date.now() };
+
+                if (slot > currentGrid.slots.length) {
+                    return interaction.editReply({ content: `Invalid slot. You only have ${currentGrid.slots.length} slots.` });
+                }
+                const buildingInSlot = currentGrid.slots[slotIndex];
+                if (!buildingInSlot) {
+                    return interaction.editReply({ content: `Slot ${slot} is already empty.` });
+                }
+
+                await modifyInventory(account._id, buildingInSlot, 1);
+                currentGrid.slots[slotIndex] = null;
+                await updateAccount(account._id, { powerGrid: currentGrid });
+                
+                return interaction.editReply({ content: `Successfully removed ${ITEMS[buildingInSlot].emoji} **${ITEMS[buildingInSlot].name}** from Slot ${slot}. It has been returned to your inventory.` });
+            }
+            break;
+        }
+
+        case 'inventory': {
+            const itemNameFilter = options.getString('item_name');
+            const targetDiscordUser = options.getUser('user');
+            let targetAccount = account;
+            let userForDisplay = user;
+
+            if (targetDiscordUser) {
+                const foundAccount = await getAccount(targetDiscordUser.id);
+                if (foundAccount) {
+                    targetAccount = await selfHealAccount(foundAccount);
+                    userForDisplay = targetDiscordUser;
+                } else {
+                    const errorEmbed = new EmbedBuilder()
+                        .setColor('#ED4245')
+                        .setDescription(`The user ${targetDiscordUser.username} does not have an economy account yet.`);
+                    return interaction.editReply({ embeds: [errorEmbed], ephemeral: true });
+                }
+            }
+            
+            let inventoryContent = handleInventory(targetAccount, itemNameFilter);
+
+            if (targetAccount._id !== account._id) {
+                inventoryContent = inventoryContent
+                    .replace('Your inventory is empty.', 'This user\'s inventory is empty.')
+                    .replace(/You have no items matching ".*"/, `This user has no items matching "${itemNameFilter}".`);
+            }
+
+            let title;
+            if (targetAccount._id === account._id) {
+                title = itemNameFilter ? `🎒 Your Inventory (Filtered by: ${itemNameFilter})` : '🎒 Your Inventory';
+            } else {
+                title = itemNameFilter ? `🎒 ${userForDisplay.username}'s Inventory (Filtered by: ${itemNameFilter})` : `🎒 ${userForDisplay.username}'s Inventory`;
+            }
+
+            const inventoryEmbed = new EmbedBuilder()
+                .setColor('#3498DB')
+                .setTitle(title)
+                .setAuthor({ name: userForDisplay.username, iconURL: userForDisplay.displayAvatarURL() })
+                .setDescription(inventoryContent);
+            await interaction.editReply({ embeds: [inventoryEmbed] });
+            break;
+        }
+
+        case 'timers': { const timerLines = await handleTimers(account); const timerEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('⏳ Your Cooldowns').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setDescription(timerLines.join('\n')); await interaction.editReply({ embeds: [timerEmbed] }); break; } case 'work': case 'daily': case 'hourly': case 'gather': case 'smelt': case 'eat': case 'flip': case 'slots': case 'craft': case 'pay': { if (commandName === 'work') result = await handleWork(account); if (commandName === 'daily') result = await handleDaily(account); if (commandName === 'hourly') result = await handleHourly(account); if (commandName === 'gather') result = await handleGather(account); if (commandName === 'smelt') { itemName = options.getString('ore_name'); quantity = options.getInteger('quantity'); result = await handleSmelt(account, itemName, quantity); } if (commandName === 'eat') { itemName = options.getString('food_name'); result = await handleEat(account, itemName); } if (commandName === 'flip') { amount = options.getInteger('amount'); choice = options.getString('choice'); result = await handleFlip(account, amount, choice); } if (commandName === 'slots') { amount = options.getInteger('amount'); result = await handleSlots(account, amount); } if (commandName === 'craft') { itemName = options.getString('item_name'); quantity = options.getInteger('quantity') || 1; result = await handleCraft(account, itemName, quantity); } if (commandName === 'pay') { const recipientUser = options.getUser('user'); amount = options.getInteger('amount'); if (recipientUser.bot) { result = { success: false, message: "You can't pay bots." }; } else if (!isFinite(account.balance)) { result = { success: false, message: 'Your account balance is corrupted. Please contact an admin.' }; } else if (!isFinite(amount) || amount <= 0) { result = { success: false, message: 'Please enter a valid, positive amount.' }; } else { const recipientAccount = await getAccount(recipientUser.id); if (!recipientAccount) { result = { success: false, message: `That user doesn't have an economy account yet.` }; } else { result = await handlePay(account, recipientAccount, amount); } } } const responseEmbed = new EmbedBuilder() .setColor(result.success ? '#57F287' : '#ED4245') .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }) .setDescription(result.message); await interaction.editReply({ embeds: [responseEmbed] }); break; } case 'marketsell': { itemName = options.getString('item_name'); quantity = options.getInteger('quantity'); price = options.getNumber('price'); result = await handleMarketSell(account, itemName, quantity, price); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketbuy': { listingId = options.getInteger('listing_id'); result = await handleMarketBuy(account, listingId); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketcancel': { const listingIdToCancel = options.getInteger('listing_id'); result = await handleMarketCancel(account, listingIdToCancel); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'crateshopbuy': { const crateNameToOpenSlash = options.getString('crate_name'); const amountToOpenSlash = options.getInteger('amount'); result = await handleCrateShopBuy(account, crateNameToOpenSlash, amountToOpenSlash); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setTitle(result.success ? `Opened ${amountToOpenSlash}x ${LOOTBOXES[Object.keys(LOOTBOXES).find(k => LOOTBOXES[k].name.toLowerCase() === crateNameToOpenSlash.toLowerCase())].name}` : 'Error').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } 
+    }
+
+    if (isNewUser) {
+        const welcomeEmbed = new EmbedBuilder()
+            .setColor('#57F287')
+            .setTitle('👋 Welcome!')
+            .setDescription(`I've created a temporary economy account for you with a starting balance of **${STARTING_BALANCE} ${CURRENCY_NAME}** and two random traits.\n\nUse \`/traits view\` to see what you got! You can use \`/name\` to set a custom name for the leaderboard if you don't plan on linking a Drednot account.\n\nAlternatively, click the button below to start the process of linking your Drednot.io account.`);
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('guide_link_account').setLabel('Link Drednot Account').setStyle(ButtonStyle.Success).setEmoji('🔗'));
+        await interaction.followUp({ embeds: [welcomeEmbed], components: [row], ephemeral: true });
+    }
 }
 
-case 'timers': { const timerLines = await handleTimers(account); const timerEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('⏳ Your Cooldowns').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setDescription(timerLines.join('\n')); await interaction.editReply({ embeds: [timerEmbed] }); break; } case 'work': case 'daily': case 'hourly': case 'gather': case 'smelt': case 'eat': case 'flip': case 'slots': case 'craft': case 'pay': { if (commandName === 'work') result = await handleWork(account); if (commandName === 'daily') result = await handleDaily(account); if (commandName === 'hourly') result = await handleHourly(account); if (commandName === 'gather') result = await handleGather(account); if (commandName === 'smelt') { itemName = options.getString('ore_name'); quantity = options.getInteger('quantity'); result = await handleSmelt(account, itemName, quantity); } if (commandName === 'eat') { itemName = options.getString('food_name'); result = await handleEat(account, itemName); } if (commandName === 'flip') { amount = options.getInteger('amount'); choice = options.getString('choice'); result = await handleFlip(account, amount, choice); } if (commandName === 'slots') { amount = options.getInteger('amount'); result = await handleSlots(account, amount); } if (commandName === 'craft') { itemName = options.getString('item_name'); quantity = options.getInteger('quantity') || 1; result = await handleCraft(account, itemName, quantity); } if (commandName === 'pay') { const recipientUser = options.getUser('user'); amount = options.getInteger('amount'); if (recipientUser.bot) { result = { success: false, message: "You can't pay bots." }; } else if (!isFinite(account.balance)) { result = { success: false, message: 'Your account balance is corrupted. Please contact an admin.' }; } else if (!isFinite(amount) || amount <= 0) { result = { success: false, message: 'Please enter a valid, positive amount.' }; } else { const recipientAccount = await getAccount(recipientUser.id); if (!recipientAccount) { result = { success: false, message: `That user doesn't have an economy account yet.` }; } else { result = await handlePay(account, recipientAccount, amount); } } } const responseEmbed = new EmbedBuilder() .setColor(result.success ? '#57F287' : '#ED4245') .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }) .setDescription(result.message); await interaction.editReply({ embeds: [responseEmbed] }); break; } case 'marketsell': { itemName = options.getString('item_name'); quantity = options.getInteger('quantity'); price = options.getNumber('price'); result = await handleMarketSell(account, itemName, quantity, price); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketbuy': { listingId = options.getInteger('listing_id'); result = await handleMarketBuy(account, listingId); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketcancel': { const listingIdToCancel = options.getInteger('listing_id'); result = await handleMarketCancel(account, listingIdToCancel); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'crateshopbuy': { const crateNameToOpenSlash = options.getString('crate_name'); const amountToOpenSlash = options.getInteger('amount'); result = await handleCrateShopBuy(account, crateNameToOpenSlash, amountToOpenSlash); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setTitle(result.success ? `Opened ${amountToOpenSlash}x ${LOOTBOXES[Object.keys(LOOTBOXES).find(k => LOOTBOXES[k].name.toLowerCase() === crateNameToOpenSlash.toLowerCase())].name}` : 'Error').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } } if (isNewUser) { const welcomeEmbed = new EmbedBuilder() .setColor('#57F287') .setTitle('👋 Welcome!') .setDescription(`I've created a temporary economy account for you with a starting balance of **${STARTING_BALANCE} ${CURRENCY_NAME}** and two random traits.\n\nUse \`/traits view\` to see what you got! You can use \`/name\` to set a custom name for the leaderboard if you don't plan on linking a Drednot account.\n\nAlternatively, click the button below to start the process of linking your Drednot.io account.`); const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('guide_link_account').setLabel('Link Drednot Account').setStyle(ButtonStyle.Success).setEmoji('🔗')); await interaction.followUp({ embeds: [welcomeEmbed], components: [row], ephemeral: true }); } }
 
 // =========================================================================
 // --- IN-GAME (API) COMMAND HANDLER ---
@@ -1415,7 +1465,6 @@ case 'timers': { const timerLines = await handleTimers(account); const timerEmbe
 app.get("/", (req, res) => res.send("Bot is alive!"));
 app.post('/command', async (req, res) => { try { const apiKey = req.headers['x-api-key']; if (apiKey !== YOUR_API_KEY) return res.status(401).send('Error: Invalid API key'); const { command, username, args } = req.body; if(!command || !username) { return res.status(400).json({reply: "Invalid request body."}); } const identifier = username.toLowerCase(); let responseMessage = ''; if (command === 'verify') { const code = args[0]; const verificationData = await verificationsCollection.findOneAndDelete({ _id: code }); if (!verificationData) { responseMessage = 'That verification code is invalid, expired, or has already been used.'; } else if (Date.now() - verificationData.timestamp > 5 * 60 * 1000) { responseMessage = 'That verification code has expired.'; } else if (verificationData.drednotName.toLowerCase() !== username.toLowerCase()) { responseMessage = 'This verification code is for a different Drednot user and has now been invalidated.'; } else { const mergeResult = await handleAccountMerge(verificationData.discordId, verificationData.drednotName); responseMessage = mergeResult.message; if (mergeResult.success) { try { const discordUser = await client.users.fetch(verificationData.discordId); discordUser.send(mergeResult.message); } catch (e) { console.log("Couldn't send DM confirmation for merge."); } } } return res.json({ reply: responseMessage }); } if (['n', 'next', 'p', 'previous'].includes(command)) { const session = userPaginationData[identifier]; if (!session) return res.json({ reply: 'You have no active list to navigate.' }); const pageChange = (command.startsWith('n')) ? 1 : -1; const { game } = getPaginatedResponse(identifier, session.type, session.lines, session.title, pageChange); return res.json({ reply: game.map(line => cleanText(line)) }); } let account = await getAccount(username); if (!account) { const conflictingDiscordUser = await economyCollection.findOne({ displayName: new RegExp(`^${username}$`, 'i') }); if (conflictingDiscordUser) { console.log(`[Name Bump] Drednot user "${username}" is claiming a name from Discord user ${conflictingDiscordUser._id}.`); await economyCollection.updateOne({ _id: conflictingDiscordUser._id }, { $set: { displayName: null, wasBumped: true } }); } account = await createNewAccount(username, 'drednot'); const welcomeMessage = [`Welcome! Your new economy account "${username}" has been created with ${STARTING_BALANCE} Bits and two random traits.`, `Join the Discord for the full experience:`, `${DISCORD_INVITE_LINK}`]; return res.json({ reply: welcomeMessage }); } else { account = await selfHealAccount(account); } let result; const cleanText = (text) => { let processedText = Array.isArray(text) ? text.map(t => String(t)).join('\n') : String(text); processedText = processedText.replace(/\*\*([^*]+)\*\*/g, (match, p1) => toBoldFont(p1)); return processedText.replace(/`|>/g, '').replace(/<a?:.+?:\d+>/g, '').replace(/<:[a-zA-Z0-9_]+:[0-9]+>/g, ''); }; switch (command) {
 // --- GRID SYSTEM ---
-// UPDATED CASE
 case 'grid': {
     const powerGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
     let generation = 0, consumption = 0, bitsGeneration = 0;
@@ -1453,7 +1502,6 @@ case 'grid': {
     responseMessage = gridStatus;
     break;
 }
-// NEW CASE
 case 'gridup': {
     result = await handleGridUpgrade(account);
     responseMessage = result.message;
@@ -1504,7 +1552,7 @@ case 'gridp': {
 }
 // --- END GRID SYSTEM ---
 case 'clan': { const subCommand = args[0]?.toLowerCase() || 'help'; const clanArgs = args.slice(1); let clanResult; switch (subCommand) { case 'create': if (clanArgs.length < 1) { clanResult = { message: "Usage: !clan create <name>" }; break; } const clanNameOnly = clanArgs.join(' '); clanResult = await handleClanCreate(account, clanNameOnly); break; case 'leave': clanResult = await handleClanLeave(account); break; case 'disband': clanResult = await handleClanDisband(account); break; case 'kick': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan kick <username>" }; break; } const targetAccKick = await getAccount(clanArgs.join(' ')); if (!targetAccKick) clanResult = { message: "Player not found." }; else clanResult = await handleClanKick(account, targetAccKick); break; case 'recruit': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan recruit <1|2>" }; break; } clanResult = await handleClanRecruit(account, clanArgs[0]); break; case 'upgrade': clanResult = await handleClanUpgrade(account); break; case 'donate': const amount = parseInt(clanArgs[0], 10); clanResult = await handleClanDonate(account, amount); break; case 'info': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan info <code>" }; break; } clanResult = await handleClanInfo(clanArgs[0]); if (clanResult.embed) { const embed = clanResult.embed.data; let textResponse = [`--- ${embed.title} ---`, embed.description]; embed.fields.forEach(field => { textResponse.push(`\n${field.name}:`); textResponse.push(`${field.value}`); }); clanResult = { message: textResponse.join('\n') }; } break; case 'list': clanResult = await handleClanList(); if (clanResult.success) { const paginated = getPaginatedResponse(identifier, 'clan_list', clanResult.lines, 'Clan Browser', 0); return res.json({ reply: paginated.game.map(line => cleanText(line)) }); } break; case 'war': clanResult = await handleClanWar(); break; case 'join': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan join <code>" }; break; } clanResult = await handleClanJoin(account, clanArgs[0]); break; case 'invite': const targetName = clanArgs.join(' '); if (targetName) { const targetAccInv = await getAccount(targetName); if (!targetAccInv) clanResult = { message: "Player not found." }; else clanResult = await handleClanInvite(account, targetAccInv); } else { clanResult = await handleClanInvite(account, account.clanId ? 'view' : null); } break; case 'accept': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan accept <user_or_code>" }; break; } clanResult = await handleClanAccept(account, clanArgs[0]); break; case 'decline': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan decline <code>" }; break; } clanResult = await handleClanDecline(account, clanArgs[0]); break; default: clanResult = { message: `Unknown clan command. Use !clan list, !info, etc.` }; } responseMessage = clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : 'An error occurred.'); break; } 
-// UPDATED CASE
+
 case 'info': {
     if (args.length === 0) {
         responseMessage = "Usage: !info <item/trait name>";
