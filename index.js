@@ -1,4 +1,4 @@
-// index.js (Final Merged & Upgraded Script with Clans & Power Grid)
+/ index.js (Final Merged & Upgraded Script with Clans & Power Grid)
 
 // --- Library Imports ---
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
@@ -14,6 +14,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 process.on('uncaughtException', (error) => {
   console.error('CRITICAL: Uncaught Exception:', error);
+  process.exit(1); // Exit on critical error to allow for a clean restart
 });
 // =========================================================================
 
@@ -22,7 +23,7 @@ const app = express();
 const port = 3000;
 app.use(express.json());
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers] });
-const YOUR_API_KEY = 'drednot123';
+const YOUR_API_KEY = process.env.YOUR_API_KEY || 'drednot123'; // Use environment variable
 
 // =========================================================================
 // --- MONGODB DATABASE & IN-MEMORY STATE ---
@@ -97,10 +98,17 @@ const TRAITS = {
 
 // --- GRID SYSTEM ---
 const GRID_TICK_INTERVAL_MINUTES = 60; // How often the grid produces resources
+const GRID_MAX_SLOTS = 6;
+const GRID_UPGRADE_COSTS = {
+    // Current Slots -> Cost to get NEXT slot
+    3: 15000,
+    4: 40000,
+    5: 100000,
+};
 const BUILDINGS = {
-    'solar_panel': { name: "Solar Panel", emoji: "☀️", type: 'generator', craftable: true, recipe: { 'copper_wire': 9, 'iron_ingot': 4, 'copper_ingot': 5 }, effects: { power_generation: 10 } },
-    'auto_miner': { name: "Auto-Miner", emoji: "⛏️", type: 'consumer', craftable: true, recipe: { 'copper_wire': 20, 'iron_stick': 5 }, effects: { power_consumption: 15, bits_generation: 25 } },
-    'tower': { name: "Tower", emoji: "🗼", type: 'enhancer', craftable: true, recipe: { 'copper_wire': 30, 'iron_stick': 5, 'raw_crystal': 5 }, effects: { power_consumption: 20 } },
+    'solar_panel': { name: "Solar Panel", emoji: "☀️", type: 'generator', description: "A basic power generator that harnesses the sun's energy.", craftable: true, recipe: { 'copper_wire': 9, 'iron_ingot': 4, 'copper_ingot': 5 }, effects: { power_generation: 10 } },
+    'auto_miner': { name: "Auto-Miner", emoji: "⛏️", type: 'consumer', description: "A machine that passively generates Bits, but requires power to run.", craftable: true, recipe: { 'copper_wire': 20, 'iron_stick': 5 }, effects: { power_consumption: 15, bits_generation: 25 } },
+    'tower': { name: "Tower", emoji: "🗼", type: 'enhancer', description: "A powered signal tower that has a small chance to duplicate your earnings from /work and /gather.", craftable: true, recipe: { 'copper_wire': 30, 'iron_stick': 5, 'raw_crystal': 5 }, effects: { power_consumption: 20 } },
 };
 // --- END GRID SYSTEM ---
 
@@ -108,8 +116,8 @@ const ITEMS = {
     'trait_reforger': { name: "Trait Reforger", emoji: "✨", description: "A mysterious artifact that allows you to reshape your innate abilities. Use it with /traits reroll or !traitroll." },
     'iron_ore': { name: "Iron Ore", emoji: "🔩" }, 'copper_ore': { name: "Copper Ore", emoji: "🟤" }, 'wood': { name: "Wood", emoji: "🪵" }, 'stone': { name: "Stone", emoji: "🪨" }, 'coal': { name: "Coal", emoji: "⚫" }, 'raw_crystal':{ name: "Raw Crystal", emoji: "💎" }, 'iron_ingot': { name: "Iron Ingot", emoji: "⛓️" }, 'copper_ingot':{ name: "Copper Ingot", emoji: "🟧" }, 
     // --- GRID SYSTEM ---
-    'copper_wire': { name: "Copper Wire", emoji: "⚙️", craftable: true, recipe: { 'copper_ingot': 1 } },
-    'iron_stick': { name: "Iron Stick", emoji: "➖", craftable: true, recipe: { 'iron_ingot': 2 } },
+    'copper_wire': { name: "Copper Wire", emoji: "⚙️", description: "A simple wire made from copper, used in electronics.", craftable: true, recipe: { 'copper_ingot': 1 } },
+    'iron_stick': { name: "Iron Stick", emoji: "➖", description: "A sturdy stick made from iron, used as a structural component.", craftable: true, recipe: { 'iron_ingot': 2 } },
     // --- END GRID SYSTEM ---
     'basic_pickaxe': { name: "Basic Pickaxe", emoji: "⛏️", type: "tool", effects: { work_bonus_flat: 1 }, craftable: true, recipe: { 'stone': 5, 'wood': 2 } }, 'sturdy_pickaxe': { name: "Sturdy Pickaxe", emoji: "⚒️", type: "tool", effects: { work_bonus_percent: 0.10 }, craftable: true, recipe: { 'iron_ore': 10, 'wood': 3, 'coal': 2 } }, 'iron_pickaxe': { name: "Iron Pickaxe", emoji: "🦾", type: "tool", effects: { work_bonus_flat: 5 }, craftable: true, recipe: { 'iron_ingot': 5, 'wood': 2} }, 'crystal_pickaxe': { name: "Crystal Pickaxe", emoji: "💠", type: "tool", effects: { work_bonus_percent: 0.30 }, craftable: true, recipe: { 'sturdy_pickaxe': 1, 'raw_crystal': 3, 'iron_ore': 5 } }, 'gathering_basket': { name: "Gathering Basket", emoji: "🧺", type: "tool", craftable: true, recipe: { 'wood': 15, 'stone': 5 } }, 'smelter': { name: "Smelter", emoji: "🏭", type: "tool", craftable: true, recipe: { 'stone': 9 } }, 'wild_berries': { name: "Wild Berries", emoji: "🫐", type: "food", buff: { duration_ms: 5 * 60 * 1000, effects: { gather_cooldown_reduction_ms: 10 * 1000 } } }, 'glow_mushroom': { name: "Glow Mushroom", emoji: "🍄", type: "food", buff: { duration_ms: 10 * 60 * 1000, effects: { gather_cooldown_reduction_ms: 5 * 1000 } } }, 'raw_meat': { name: "Raw Meat", emoji: "🍖", type: "food" }, 'smoked_meat': { name: "Smoked Meat", emoji: "🥩", type: "food", buff: { duration_ms: 5 * 60 * 1000, effects: { work_cooldown_reduction_ms: 15 * 1000 } } }, 'spicy_pepper': { name: "Spicy Pepper", emoji: "🌶️", type: "food", buff: { duration_ms: 3 * 60 * 1000, effects: { work_double_or_nothing: true } } },
     // --- GRID SYSTEM ---
@@ -241,6 +249,10 @@ async function selfHealAccount(account) {
         updates['powerGrid'] = { slots: [null, null, null], lastTick: Date.now() };
         needsUpdate = true;
         console.log(`[Self-Heal] Adding powerGrid to account: ${account._id}`);
+    } else if (!Array.isArray(account.powerGrid.slots)) { // Fix for potential malformed data
+         updates['powerGrid.slots'] = [null, null, null];
+         needsUpdate = true;
+         console.log(`[Self-Heal] Fixing powerGrid.slots for account: ${account._id}`);
     }
     // --- END GRID SYSTEM ---
     if (needsUpdate) { await updateAccount(account._id, updates); return getAccount(account._id); } return account;
@@ -283,11 +295,108 @@ async function handleClanWar() { const warState = await serverStateCollection.fi
 // =========================================================================
 // --- CORE COMMAND HANDLERS ---
 // =========================================================================
-function handleItemInfo(itemId) { const itemDef = ITEMS[itemId]; if (!itemDef) return `Could not find an item with that ID.`; const header = `${itemDef.emoji || '📦'} **${itemDef.name}**\n--------------------`; let infoLines = []; if (itemDef.description) { infoLines.push(`> ${itemDef.description}`); } if (itemDef.type) { const typeFormatted = itemDef.type.charAt(0).toUpperCase() + itemDef.type.slice(1); infoLines.push(`> **Type:** ${typeFormatted}`); } if (itemDef.effects) { for (const effect in itemDef.effects) { const value = itemDef.effects[effect]; let effectText = '> **Effect:** '; if (effect === 'work_bonus_flat') { effectText += `Increases Bits from /work by a flat bonus of +${value}.`; } else if (effect === 'work_bonus_percent') { effectText += `Increases Bits from /work by a bonus of ${value * 100}%.`; } infoLines.push(effectText); } } if (itemDef.craftable) { const recipeParts = Object.entries(itemDef.recipe).map(([resId, qty]) => { const resource = ITEMS[resId]; return `${resource.emoji} ${qty}x ${resource.name}`; }); infoLines.push(`> **Craftable:** Yes`); infoLines.push(`> **Recipe:** ${recipeParts.join(', ')}`); } if (infoLines.length === 0 && !itemDef.description) { infoLines.push('> **Use:** A basic resource used in crafting recipes.'); } return [header, ...infoLines].join('\n'); }
+
+// UPDATED/NEW FUNCTION
+function handleItemInfo(itemId) {
+    const itemDef = ITEMS[itemId];
+    if (!itemDef) return `Could not find an item with that ID.`;
+
+    const header = `${itemDef.emoji || '📦'} **${itemDef.name}**\n--------------------`;
+    let infoLines = [];
+
+    if (itemDef.description) {
+        infoLines.push(`> ${itemDef.description}`);
+    }
+
+    if (itemDef.type) {
+        const typeFormatted = itemDef.type.charAt(0).toUpperCase() + itemDef.type.slice(1);
+        infoLines.push(`> **Type:** ${typeFormatted}`);
+    }
+
+    // Handle item/building effects
+    if (itemDef.effects) {
+        let effectTextParts = [];
+        // Building Effects
+        if (itemDef.effects.power_generation) effectTextParts.push(`Generates **+${itemDef.effects.power_generation}** Power/hr`);
+        if (itemDef.effects.power_consumption) effectTextParts.push(`Consumes **${itemDef.effects.power_consumption}** Power/hr`);
+        if (itemDef.effects.bits_generation) effectTextParts.push(`Generates **+${itemDef.effects.bits_generation}** Bits/hr (when powered)`);
+        // Tool Effects
+        if (itemDef.effects.work_bonus_flat) effectTextParts.push(`Increases Bits from /work by **+${itemDef.effects.work_bonus_flat}**`);
+        if (itemDef.effects.work_bonus_percent) effectTextParts.push(`Increases Bits from /work by **${itemDef.effects.work_bonus_percent * 100}%**`);
+
+        if (effectTextParts.length > 0) {
+            infoLines.push(`> **Effects:**\n> • ${effectTextParts.join('\n> • ')}`);
+        }
+    }
+
+    // Handle food buff effects
+    if (itemDef.buff) {
+        let buffTextParts = [];
+        const durationText = formatDuration(itemDef.buff.duration_ms / 1000);
+        if (itemDef.buff.effects.gather_cooldown_reduction_ms) buffTextParts.push(`Reduces gather cooldown by **${itemDef.buff.effects.gather_cooldown_reduction_ms / 1000}s**`);
+        if (itemDef.buff.effects.work_cooldown_reduction_ms) buffTextParts.push(`Reduces work cooldown by **${itemDef.buff.effects.work_cooldown_reduction_ms / 1000}s**`);
+        if (itemDef.buff.effects.work_double_or_nothing) buffTextParts.push(`Makes /work **double or nothing**`);
+
+        if (buffTextParts.length > 0) {
+            infoLines.push(`> **Buff (lasts ${durationText}):**\n> • ${buffTextParts.join('\n> • ')}`);
+        }
+    }
+
+    // Handle crafting recipe
+    if (itemDef.craftable) {
+        const recipeParts = Object.entries(itemDef.recipe).map(([resId, qty]) => {
+            const resource = ITEMS[resId];
+            return `${resource.emoji} ${qty}x ${resource.name}`;
+        });
+        infoLines.push(`> **Recipe:** ${recipeParts.join(', ')}`);
+    }
+
+    if (infoLines.length === 0 && !itemDef.description) {
+        infoLines.push('> A basic resource used in crafting recipes.');
+    }
+
+    return [header, ...infoLines].join('\n');
+}
+
 async function handleRecipes() { let recipeList = ['📜 **Available Recipes:**']; for (const itemId in ITEMS) { if (ITEMS[itemId].craftable) { const recipeParts = Object.entries(ITEMS[itemId].recipe).map(([resId, qty]) => `${ITEMS[resId].emoji} ${qty}x ${ITEMS[resId].name}`); recipeList.push(`> ${ITEMS[itemId].emoji} **${ITEMS[itemId].name}**: Requires ${recipeParts.join(', ')}`); } } return recipeList.length > 1 ? recipeList.join('\n') : 'There are no craftable items yet.'; }
 async function handleCraft(account, itemName, quantity) { if (isNaN(quantity) || quantity <= 0) { return { success: false, message: "Invalid quantity. Please provide a positive number." }; } const itemToCraftId = getItemIdByName(itemName); if (!itemToCraftId || !ITEMS[itemToCraftId].craftable) { return { success: false, message: `"${itemName}" is not a valid, craftable item. Check \`/recipes\` or \`!recipes\`.` }; } const recipe = ITEMS[itemToCraftId].recipe; let updates = {}; let missingResources = []; for (const resId in recipe) { const requiredQty = recipe[resId] * quantity; const playerQty = account.inventory[resId] || 0; if (playerQty < requiredQty) { missingResources.push(`${requiredQty - playerQty} more ${ITEMS[resId].name}`); } updates[`inventory.${resId}`] = -requiredQty; } if (missingResources.length > 0) { return { success: false, message: `You don't have enough resources! You need: ${missingResources.join(', ')}.` }; } updates[`inventory.${itemToCraftId}`] = quantity; await economyCollection.updateOne({ _id: account._id }, { $inc: updates }); return { success: true, message: `You successfully crafted **${quantity}x** ${ITEMS[itemToCraftId].name}!` }; }
 async function handleSmelt(account, itemName, quantity) { const smelterCount = account.inventory['smelter'] || 0; if (smelterCount < 1) { return { success: false, message: "You need to craft a 🔥 Smelter first!" }; } if (account.smelting && account.smelting.finishTime > Date.now()) { return { success: false, message: `You are already processing something! Wait for it to finish.` }; } const itemIdToProcess = getItemIdByName(itemName); if (!itemIdToProcess) { return { success: false, message: `Invalid item: ${itemName}` }; } let resultItemId; let processType; if (SMELTABLE_ORES[itemIdToProcess]) { resultItemId = SMELTABLE_ORES[itemIdToProcess]; processType = 'smelting'; } else if (COOKABLE_FOODS[itemIdToProcess]) { resultItemId = COOKABLE_FOODS[itemIdToProcess]; processType = 'cooking'; } else { return { success: false, message: `You can't smelt or cook that. Valid inputs: Iron Ore, Copper Ore, Raw Meat.` }; } if (isNaN(quantity) || quantity <= 0) { return { success: false, message: "Invalid quantity." }; } if ((account.inventory[itemIdToProcess] || 0) < quantity) { return { success: false, message: `You don't have enough ${ITEMS[itemIdToProcess].name}.` }; } const coalNeeded = quantity * SMELT_COAL_COST_PER_ORE; if ((account.inventory['coal'] || 0) < coalNeeded) { return { success: false, message: `You don't have enough coal. You need ${coalNeeded} ⚫ Coal.` }; } const updateResult = await economyCollection.findOneAndUpdate( { _id: account._id, [`inventory.${itemIdToProcess}`]: { $gte: quantity }, [`inventory.coal`]: { $gte: coalNeeded } }, { $inc: { [`inventory.${itemIdToProcess}`]: -quantity, [`inventory.coal`]: -coalNeeded } } ); if (!updateResult) { return { success: false, message: "Failed to start smelting, you might not have enough resources. Please check your inventory." }; } let timePerItem = (SMELT_COOLDOWN_SECONDS_PER_ORE / smelterCount) * 1000; if (currentGlobalEvent && currentGlobalEvent.effect.type === 'super_smelter') { timePerItem /= 2; } const totalTime = timePerItem * quantity; const finishTime = Date.now() + totalTime; await updateAccount(account._id, { smelting: { resultItemId: resultItemId, quantity, finishTime } }); let eventText = currentGlobalEvent && currentGlobalEvent.effect.type === 'super_smelter' ? ` (Thanks to ${currentGlobalEvent.name}!)` : ''; return { success: true, message: `You begin ${processType} **${quantity}x** ${ITEMS[itemIdToProcess].name}. It will take **${formatDuration(totalTime / 1000)}**${eventText}.` }; }
 async function handleTimers(account) { const now = Date.now(); const timers = []; let workCooldown = WORK_COOLDOWN_MINUTES * 60 * 1000; let gatherCooldown = GATHER_COOLDOWN_MINUTES * 60 * 1000; let hourlyCooldown = HOURLY_COOLDOWN_MINUTES * 60 * 1000; if (account.traits) { getActiveTraits(account, 'prodigy').forEach(t => { const reduction = 5 * t.level; workCooldown *= (1 - reduction / 100); gatherCooldown *= (1 - reduction / 100); }); } const activeBuffs = (account.activeBuffs || []).filter(buff => buff.expiresAt > now); for (const buff of activeBuffs) { const itemDef = ITEMS[buff.itemId]; if (itemDef?.buff?.effects) { if(itemDef.buff.effects.work_cooldown_reduction_ms) workCooldown -= itemDef.buff.effects.work_cooldown_reduction_ms; if(itemDef.buff.effects.gather_cooldown_reduction_ms) gatherCooldown -= itemDef.buff.effects.gather_cooldown_reduction_ms; } } workCooldown = Math.max(MINIMUM_ACTION_COOLDOWN_MS, workCooldown); gatherCooldown = Math.max(MINIMUM_ACTION_COOLDOWN_MS, gatherCooldown); timers.push(`> 💪 **Work**: ${(account.lastWork && (now - account.lastWork) < workCooldown) ? formatDuration(((account.lastWork + workCooldown) - now) / 1000) : 'Ready!'}`); timers.push(`> ⛏️ **Gather**: ${(account.lastGather && (now - account.lastGather) < gatherCooldown) ? formatDuration(((account.lastGather + gatherCooldown) - now) / 1000) : 'Ready!'}`); const hourlyTimeLeft = (account.lastHourly || 0) + hourlyCooldown - now; timers.push(`>  hourly: ${hourlyTimeLeft > 0 ? formatDuration(hourlyTimeLeft / 1000) : 'Ready!'}`); const dailyCooldown = 22 * 60 * 60 * 1000; const dailyTimeLeft = (account.lastDaily || 0) + dailyCooldown - now; timers.push(`> 📅 **Daily**: ${dailyTimeLeft > 0 ? formatDuration(dailyTimeLeft / 1000) : 'Ready!'}`); const slotsTimeLeft = (account.lastSlots || 0) + SLOTS_COOLDOWN_SECONDS * 1000 - now; if (slotsTimeLeft > 0) timers.push(`> 🎰 **Slots**: ${formatDuration(slotsTimeLeft / 1000)}`); if (account.smelting && account.smelting.finishTime > now) { timers.push(`> 🔥 **Smelting**: ${formatDuration((account.smelting.finishTime - now) / 1000)}`); } if(account.clanJoinCooldown && now < new Date(account.clanJoinCooldown).getTime()) { timers.push(`> 🛡️ **Clan Join**: ${formatDuration((new Date(account.clanJoinCooldown).getTime() - now) / 1000)}`); } if (activeBuffs.length > 0) { timers.push(`\n**Active Buffs:**`); activeBuffs.forEach(buff => { const itemDef = ITEMS[buff.itemId]; const timeLeft = formatDuration((buff.expiresAt - now) / 1000); timers.push(`> ${itemDef?.emoji || '❔'} ${itemDef?.name || 'Unknown Buff'}: **${timeLeft}** remaining`); }); } return timers; }
+
+// NEW FUNCTION
+async function handleGridUpgrade(account) {
+    const powerGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+    const currentSlots = powerGrid.slots.length;
+
+    if (currentSlots >= GRID_MAX_SLOTS) {
+        return { success: false, message: "Your power grid is already at the maximum size of 6 slots!" };
+    }
+
+    const cost = GRID_UPGRADE_COSTS[currentSlots];
+    if (typeof cost === 'undefined') {
+         console.error(`[CRITICAL] Missing grid upgrade cost for slot count: ${currentSlots}`);
+         return { success: false, message: "An error occurred with the upgrade cost. Please contact an admin." };
+    }
+
+    if (account.balance < cost) {
+        return { success: false, message: `You need **${cost.toLocaleString()} ${CURRENCY_NAME}** to upgrade your grid. You only have **${Math.floor(account.balance).toLocaleString()}**.` };
+    }
+
+    // Add a new slot to the array
+    const newSlots = [...powerGrid.slots, null];
+    const newPowerGrid = { ...powerGrid, slots: newSlots };
+
+    // Atomically update balance and the grid
+    await economyCollection.updateOne(
+        { _id: account._id },
+        {
+            $inc: { balance: -cost },
+            $set: { powerGrid: newPowerGrid }
+        }
+    );
+
+    return { success: true, message: `Success! You upgraded your power grid to **${newSlots.length} slots** for ${cost.toLocaleString()} ${CURRENCY_NAME}.` };
+}
 
 async function handleWork(account) {
     let now = Date.now();
@@ -929,12 +1038,10 @@ async function handleCrateShopBuy(account, crateName, amount) {
     let rewardMessages = [];
     for (const rewardId in totalRewards) {
         if (rewardId === 'bits') {
-            // BUG FIX: Changed from additive assignment to direct assignment.
-            updates.$inc.balance = totalRewards[rewardId];
+            updates.$inc.balance = (updates.$inc.balance || 0) + totalRewards[rewardId];
             rewardMessages.push(`**${totalRewards[rewardId]}** ${CURRENCY_NAME}`);
         } else {
-            // BUG FIX: Changed from additive assignment to direct assignment.
-            updates.$inc[`inventory.${rewardId}`] = totalRewards[rewardId];
+            updates.$inc[`inventory.${rewardId}`] = (updates.$inc[`inventory.${rewardId}`] || 0) + totalRewards[rewardId];
             rewardMessages.push(`${ITEMS[rewardId].emoji} **${totalRewards[rewardId]}x** ${ITEMS[rewardId].name}`);
         }
     }
@@ -1085,7 +1192,48 @@ async function processMarketPriceCorrection() {
 client.on('ready', () => console.log(`Discord bot logged in as ${client.user.tag}!`));
 client.on('interactionCreate', async (interaction) => { try { if (interaction.isChatInputCommand()) { await handleSlashCommand(interaction); } else if (interaction.isButton()) { await handleButtonInteraction(interaction); } else if (interaction.isAutocomplete()) { const focusedOption = interaction.options.getFocused(true); let choices = []; if (interaction.commandName === 'craft') { choices = Object.values(ITEMS).filter(i => i.craftable && i.type !== 'building').map(i => i.name); } else if (interaction.commandName === 'eat') { choices = Object.values(ITEMS).filter(i => i.type === 'food').map(i => i.name); } else if (interaction.commandName === 'info') { const itemNames = Object.values(ITEMS).map(i => i.name); const traitNames = Object.values(TRAITS).map(t => t.name); choices = [...itemNames, ...traitNames]; } else if (interaction.commandName === 'marketsell' || interaction.commandName === 'smelt') { choices = Object.values(ITEMS).filter(i => i.type !== 'building').map(i => i.name); } else if (interaction.commandName === 'crateshopbuy' && focusedOption.name === 'crate_name') { const currentListings = await lootboxCollection.find({}).toArray(); const availableCrateIds = new Set(currentListings.map(l => l.lootboxId)); choices = Object.keys(LOOTBOXES).filter(id => availableCrateIds.has(id)).map(id => LOOTBOXES[id].name); } else if (interaction.commandName === 'grid' && focusedOption.name === 'building') { choices = Object.values(BUILDINGS).map(b => b.name); } const filtered = choices.filter(choice => choice.toLowerCase().includes(focusedOption.value.toLowerCase())).slice(0, 25); await interaction.respond(filtered.map(choice => ({ name: choice, value: choice }))); } } catch (error) { console.error("Error handling interaction:", error); try { const errorReply = { content: 'An unexpected error occurred!', ephemeral: true, components: [] }; if (interaction.replied || interaction.deferred) { await interaction.followUp(errorReply); } else { await interaction.reply(errorReply); } } catch (e) { console.error("CRITICAL: Could not send error reply to interaction.", e); } } });
 async function handleButtonInteraction(interaction) { if (interaction.customId.startsWith('paginate_')) { const [action, type, userId] = interaction.customId.split('_'); if (interaction.user.id !== userId) { return interaction.reply({ content: "You cannot use these buttons.", ephemeral: true }); } const session = userPaginationData[userId]; if (!session) { return interaction.update({ content: 'This interactive message has expired or is invalid.', components: [] }); } const pageChange = (type === 'next') ? 1 : -1; const { discord } = getPaginatedResponse(userId, session.type, session.lines, session.title, pageChange); await interaction.update(discord); return; } if (interaction.customId === 'guide_link_account') { const guideMessage = "To link your account, please type `/link` in the chat, select the command, and then enter your exact in-game Drednot name in the `drednot_name` option."; await interaction.reply({ content: guideMessage, ephemeral: true }); return; } }
-async function handleSlashCommand(interaction) { const { commandName, user, options } = interaction; const privateCommands = [ 'link', 'name', 'timers', 'inventory', 'balance', 'traits', 'marketcancel', 'clan' ]; const isPublicClanCommand = commandName === 'clan' && ['war', 'list', 'info'].includes(options.getSubcommand()); if (privateCommands.includes(commandName) && !isPublicClanCommand) { await interaction.deferReply({ ephemeral: true }); } else { await interaction.deferReply(); } let account = await getAccount(user.id); let isNewUser = false; if (!account) { account = await createNewAccount(user.id, 'discord'); isNewUser = true; } else { account = await selfHealAccount(account); } if (account.wasBumped) { await updateAccount(user.id, { wasBumped: false }); const bumpedEmbed = new EmbedBuilder() .setColor('#FEE75C') .setTitle('Display Name Reset!') .setDescription("A player from Drednot has registered with the name you were using. Since Drednot names have priority, your display name has been reset.\nPlease use the `/name` command to choose a new, unique display name, or use `/link` to connect your own Drednot account."); return interaction.editReply({ embeds: [bumpedEmbed] }); } let result, amount, choice, itemName, quantity, price, listingId; switch (commandName) { case 'clan': { const sub = options.getSubcommand(); let clanResult; switch (sub) { case 'create': const clanName = options.getString('name'); clanResult = await handleClanCreate(account, clanName); break; case 'leave': clanResult = await handleClanLeave(account); break; case 'disband': clanResult = await handleClanDisband(account); break; case 'kick': const targetUserKick = options.getUser('user'); const targetAccountKick = await getAccount(targetUserKick.id); if (!targetAccountKick) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanKick(account, targetAccountKick); break; case 'recruit': const status = options.getInteger('status'); clanResult = await handleClanRecruit(account, status); break; case 'upgrade': clanResult = await handleClanUpgrade(account); break; case 'donate': amount = options.getInteger('amount'); clanResult = await handleClanDonate(account, amount); break; case 'info': const codeInfo = options.getString('code'); clanResult = await handleClanInfo(codeInfo); break; case 'list': clanResult = await handleClanList(); if (clanResult.success) { const { discord } = getPaginatedResponse(user.id, 'clan_list', clanResult.lines, 'Clan Browser', 0); return interaction.editReply(discord); } break; case 'war': clanResult = await handleClanWar(); return interaction.editReply({ content: clanResult.message }); case 'join': const codeJoin = options.getString('code'); clanResult = await handleClanJoin(account, codeJoin); break; case 'invite': const targetUserInvite = options.getUser('user'); if (targetUserInvite) { const targetAccountInvite = await getAccount(targetUserInvite.id); if (!targetAccountInvite) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanInvite(account, targetAccountInvite); } else { clanResult = await handleClanInvite(account, account.clanId ? 'view' : null); } break; case 'accept': const identifier = options.getString('user_or_code'); clanResult = await handleClanAccept(account, identifier); break; case 'decline': const codeDecline = options.getString('code'); clanResult = await handleClanDecline(account, codeDecline); break; } if (clanResult.embed) { return interaction.editReply({ embeds: [clanResult.embed] }); } const clanEmbed = new EmbedBuilder() .setColor(clanResult.success ? '#57F287' : '#ED4245') .setDescription(clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : "An unknown error occurred.")); return interaction.editReply({ embeds: [clanEmbed] }); } case 'info': { const name = options.getString('name'); const itemId = getItemIdByName(name); const traitId = Object.keys(TRAITS).find(k => TRAITS[k].name.toLowerCase() === name.toLowerCase()); const infoEmbed = new EmbedBuilder().setColor('#3498DB'); if (itemId) { const itemDef = ITEMS[itemId]; infoEmbed.setTitle(`${itemDef.emoji || '📦'} ${itemDef.name}`); if (itemDef.description) infoEmbed.setDescription(itemDef.description); if (itemDef.type) infoEmbed.addFields({ name: 'Type', value: itemDef.type.charAt(0).toUpperCase() + itemDef.type.slice(1), inline: true }); if (itemDef.craftable) { const recipeParts = Object.entries(itemDef.recipe).map(([resId, qty]) => `${ITEMS[resId].emoji} ${qty}x ${ITEMS[resId].name}`); infoEmbed.addFields({ name: 'Recipe', value: recipeParts.join('\n'), inline: false }); } } else if (traitId) { const trait = TRAITS[traitId]; let effectText = ''; switch (traitId) { case 'scavenger': effectText = `Grants a **5%** chance per level to find bonus resources from /work.`; break; case 'prodigy': effectText = `Reduces /work and /gather cooldowns by **5%** per level.`; break; case 'wealth': effectText = `Increases Bits earned from /work by **5%** per level.`; break; case 'surveyor': effectText = `Grants a **2%** chance per level to double your entire haul from /gather.`; break; case 'collector': effectText = `Increases the bonus reward for first-time crafts by **20%** per level.`; break; case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by **50%** per level.`; break; case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by **2.5%** per level. Stacks reset if inactive for 10 minutes.`; break; default: effectText = trait.description.replace(/{.*?}/g, '...'); } infoEmbed.setTitle(`🧬 ${trait.name} (${trait.rarity})`) .setDescription(effectText) .addFields({ name: 'Max Level', value: String(trait.maxLevel), inline: true }); } else { infoEmbed.setColor('#ED4245').setTitle('Not Found').setDescription(`Could not find an item or trait named "${name}".`); } return interaction.editReply({ embeds: [infoEmbed] }); } case 'traits': { const sub = options.getSubcommand(); if (sub === 'view') { const traitEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('🧬 Your Traits').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }); if (account.traits && account.traits.slots) { const traitFields = account.traits.slots.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); traitEmbed.addFields(traitFields); } else { traitEmbed.setDescription("You have no traits yet."); } return interaction.editReply({ embeds: [traitEmbed] }); } if (sub === 'reroll') { if ((account.inventory['trait_reforger'] || 0) < 1) { const errorEmbed = new EmbedBuilder().setColor('#ED4245').setTitle('Missing Item').setDescription('You need a ✨ Trait Reforger to do this. Get them from `/gather`!'); return interaction.editReply({ embeds: [errorEmbed] }); } await modifyInventory(user.id, 'trait_reforger', -1); const newTraits = [rollNewTrait(), rollNewTrait()]; await economyCollection.updateOne({ _id: account._id }, { $set: { 'traits.slots': newTraits } }); const successEmbed = new EmbedBuilder().setColor('#57F287').setTitle('✨ Traits Reforged!'); const traitFields = newTraits.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); successEmbed.setDescription('You consumed a Trait Reforger and received:').addFields(traitFields); return interaction.editReply({ embeds: [successEmbed] }); } break; } case 'market': case 'recipes': case 'crateshop': { let handlerResult, title, type; if (commandName === 'market') { const filter = options.getString('filter'); handlerResult = await handleMarket(filter); title = filter ? `Market (Filter: ${filter})` : "Market"; type = 'market'; } if (commandName === 'recipes') { const recipeLines = (await handleRecipes()).split('\n'); title = recipeLines.shift(); handlerResult = { success: true, lines: recipeLines }; type = 'recipes'; } if (commandName === 'crateshop') { handlerResult = await handleCrateShop(); title = "The Collector's Crates"; type = 'crateshop'; } if (!handlerResult.success) return interaction.editReply({ content: handlerResult.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, type, handlerResult.lines, title, 0); await interaction.editReply(discord); return; } case 'leaderboard': { const result = await handleLeaderboard(); if (!result.success) return interaction.editReply({ content: result.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, 'leaderboard', result.lines, 'Leaderboard', 0); await interaction.editReply(discord); return; } case 'link': { const drednotNameToLink = options.getString('drednot_name'); if (account.drednotName) { return interaction.editReply({ content: `Your Discord account is already linked to the Drednot account **${account.drednotName}**.` }); } const targetDrednotAccount = await getAccount(drednotNameToLink); if (targetDrednotAccount && targetDrednotAccount.discordId) { return interaction.editReply({ content: `The Drednot account **${drednotNameToLink}** is already linked to another Discord user.` }); } const verificationCode = `${Math.floor(1000 + Math.random() * 9000)}`; await verificationsCollection.insertOne({ _id: verificationCode, discordId: user.id, drednotName: drednotNameToLink, timestamp: Date.now() }); let replyMessage = `**Account Verification Started!**\n\n` + `1. **[Click here to join the verification ship!](${DREDNOT_INVITE_LINK})**\n\n` + `2. Once in-game, copy and paste the following command into the chat:\n` + `\`\`\`\n` + `!verify ${verificationCode}\n` + `\`\`\`\n` + `This code expires in 5 minutes.`; if (!isNewUser) { replyMessage += `\n\n**Note:** You have progress on this Discord account. Verifying will merge it with your **${drednotNameToLink}** account.` } await interaction.editReply({ content: replyMessage }); return; } case 'name': { if (account.drednotName) { return interaction.editReply({ content: `You cannot set a display name because your account is already linked to **${account.drednotName}**. That name is used on the leaderboard.` }); } const newName = options.getString('new_name'); if (newName.length < 3 || newName.length > 16) { return interaction.editReply({ content: 'Your name must be between 3 and 16 characters long.' }); } const existingNameAccount = await economyCollection.findOne({ $or: [ { drednotName: new RegExp(`^${newName}$`, 'i') }, { displayName: new RegExp(`^${newName}$`, 'i') } ] }); if (existingNameAccount) { return interaction.editReply({ content: `That name is already in use by another player. Please choose a different name.` }); } await updateAccount(user.id, { displayName: newName }); return interaction.editReply({ content: `Success! Your display name has been set to **${newName}**.` }); } 
+async function handleSlashCommand(interaction) { const { commandName, user, options } = interaction; const privateCommands = [ 'link', 'name', 'timers', 'inventory', 'balance', 'traits', 'marketcancel', 'clan' ]; const isPublicClanCommand = commandName === 'clan' && ['war', 'list', 'info'].includes(options.getSubcommand()); if (privateCommands.includes(commandName) && !isPublicClanCommand) { await interaction.deferReply({ ephemeral: true }); } else { await interaction.deferReply(); } let account = await getAccount(user.id); let isNewUser = false; if (!account) { account = await createNewAccount(user.id, 'discord'); isNewUser = true; } else { account = await selfHealAccount(account); } if (account.wasBumped) { await updateAccount(user.id, { wasBumped: false }); const bumpedEmbed = new EmbedBuilder() .setColor('#FEE75C') .setTitle('Display Name Reset!') .setDescription("A player from Drednot has registered with the name you were using. Since Drednot names have priority, your display name has been reset.\nPlease use the `/name` command to choose a new, unique display name, or use `/link` to connect your own Drednot account."); return interaction.editReply({ embeds: [bumpedEmbed] }); } let result, amount, choice, itemName, quantity, price, listingId; switch (commandName) { case 'clan': { const sub = options.getSubcommand(); let clanResult; switch (sub) { case 'create': const clanName = options.getString('name'); clanResult = await handleClanCreate(account, clanName); break; case 'leave': clanResult = await handleClanLeave(account); break; case 'disband': clanResult = await handleClanDisband(account); break; case 'kick': const targetUserKick = options.getUser('user'); const targetAccountKick = await getAccount(targetUserKick.id); if (!targetAccountKick) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanKick(account, targetAccountKick); break; case 'recruit': const status = options.getInteger('status'); clanResult = await handleClanRecruit(account, status); break; case 'upgrade': clanResult = await handleClanUpgrade(account); break; case 'donate': amount = options.getInteger('amount'); clanResult = await handleClanDonate(account, amount); break; case 'info': const codeInfo = options.getString('code'); clanResult = await handleClanInfo(codeInfo); break; case 'list': clanResult = await handleClanList(); if (clanResult.success) { const { discord } = getPaginatedResponse(user.id, 'clan_list', clanResult.lines, 'Clan Browser', 0); return interaction.editReply(discord); } break; case 'war': clanResult = await handleClanWar(); return interaction.editReply({ content: clanResult.message }); case 'join': const codeJoin = options.getString('code'); clanResult = await handleClanJoin(account, codeJoin); break; case 'invite': const targetUserInvite = options.getUser('user'); if (targetUserInvite) { const targetAccountInvite = await getAccount(targetUserInvite.id); if (!targetAccountInvite) clanResult = { success: false, message: "That user does not have an economy account." }; else clanResult = await handleClanInvite(account, targetAccountInvite); } else { clanResult = await handleClanInvite(account, account.clanId ? 'view' : null); } break; case 'accept': const identifier = options.getString('user_or_code'); clanResult = await handleClanAccept(account, identifier); break; case 'decline': const codeDecline = options.getString('code'); clanResult = await handleClanDecline(account, codeDecline); break; } if (clanResult.embed) { return interaction.editReply({ embeds: [clanResult.embed] }); } const clanEmbed = new EmbedBuilder() .setColor(clanResult.success ? '#57F287' : '#ED4245') .setDescription(clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : "An unknown error occurred.")); return interaction.editReply({ embeds: [clanEmbed] }); } 
+
+// UPDATED CASE
+case 'info': {
+    const name = options.getString('name');
+    const itemId = getItemIdByName(name);
+    const traitId = Object.keys(TRAITS).find(k => TRAITS[k].name.toLowerCase() === name.toLowerCase());
+    const infoEmbed = new EmbedBuilder().setColor('#3498DB');
+
+    if (itemId) {
+        const itemInfoString = handleItemInfo(itemId);
+        // The function returns a multi-line string. First line is the title.
+        const lines = itemInfoString.split('\n');
+        const title = lines.shift().replace(/\*\*|/g, ''); // Remove bold markdown
+        const description = lines.join('\n');
+        
+        infoEmbed.setTitle(title.trim());
+        infoEmbed.setDescription(description);
+
+    } else if (traitId) {
+        const trait = TRAITS[traitId];
+        let effectText = '';
+        switch (traitId) {
+            case 'scavenger': effectText = `Grants a **5%** chance per level to find bonus resources from /work.`; break;
+            case 'prodigy': effectText = `Reduces /work and /gather cooldowns by **5%** per level.`; break;
+            case 'wealth': effectText = `Increases Bits earned from /work by **5%** per level.`; break;
+            case 'surveyor': effectText = `Grants a **2%** chance per level to double your entire haul from /gather.`; break;
+            case 'collector': effectText = `Increases the bonus reward for first-time crafts by **20%** per level.`; break;
+            case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by **50%** per level.`; break;
+            case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by **2.5%** per level. Stacks reset if inactive for 10 minutes.`; break;
+            default: effectText = trait.description.replace(/{.*?}/g, '...');
+        }
+        infoEmbed.setTitle(`🧬 ${trait.name} (${trait.rarity})`)
+            .setDescription(effectText)
+            .addFields({ name: 'Max Level', value: String(trait.maxLevel), inline: true });
+    } else {
+        infoEmbed.setColor('#ED4245').setTitle('Not Found').setDescription(`Could not find an item or trait named "${name}".`);
+    }
+    return interaction.editReply({ embeds: [infoEmbed] });
+}
+
+case 'traits': { const sub = options.getSubcommand(); if (sub === 'view') { const traitEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('🧬 Your Traits').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }); if (account.traits && account.traits.slots) { const traitFields = account.traits.slots.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); traitEmbed.addFields(traitFields); } else { traitEmbed.setDescription("You have no traits yet."); } return interaction.editReply({ embeds: [traitEmbed] }); } if (sub === 'reroll') { if ((account.inventory['trait_reforger'] || 0) < 1) { const errorEmbed = new EmbedBuilder().setColor('#ED4245').setTitle('Missing Item').setDescription('You need a ✨ Trait Reforger to do this. Get them from `/gather`!'); return interaction.editReply({ embeds: [errorEmbed] }); } await modifyInventory(user.id, 'trait_reforger', -1); const newTraits = [rollNewTrait(), rollNewTrait()]; await economyCollection.updateOne({ _id: account._id }, { $set: { 'traits.slots': newTraits } }); const successEmbed = new EmbedBuilder().setColor('#57F287').setTitle('✨ Traits Reforged!'); const traitFields = newTraits.map(trait => { const t = TRAITS[trait.name]; return { name: `${t.name} (Level ${trait.level})`, value: `*${t.rarity}*`}; }); successEmbed.setDescription('You consumed a Trait Reforger and received:').addFields(traitFields); return interaction.editReply({ embeds: [successEmbed] }); } break; } case 'market': case 'recipes': case 'crateshop': { let handlerResult, title, type; if (commandName === 'market') { const filter = options.getString('filter'); handlerResult = await handleMarket(filter); title = filter ? `Market (Filter: ${filter})` : "Market"; type = 'market'; } if (commandName === 'recipes') { const recipeLines = (await handleRecipes()).split('\n'); title = recipeLines.shift(); handlerResult = { success: true, lines: recipeLines }; type = 'recipes'; } if (commandName === 'crateshop') { handlerResult = await handleCrateShop(); title = "The Collector's Crates"; type = 'crateshop'; } if (!handlerResult.success) return interaction.editReply({ content: handlerResult.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, type, handlerResult.lines, title, 0); await interaction.editReply(discord); return; } case 'leaderboard': { const result = await handleLeaderboard(); if (!result.success) return interaction.editReply({ content: result.lines[0], components: [] }); const { discord } = getPaginatedResponse(user.id, 'leaderboard', result.lines, 'Leaderboard', 0); await interaction.editReply(discord); return; } case 'link': { const drednotNameToLink = options.getString('drednot_name'); if (account.drednotName) { return interaction.editReply({ content: `Your Discord account is already linked to the Drednot account **${account.drednotName}**.` }); } const targetDrednotAccount = await getAccount(drednotNameToLink); if (targetDrednotAccount && targetDrednotAccount.discordId) { return interaction.editReply({ content: `The Drednot account **${drednotNameToLink}** is already linked to another Discord user.` }); } const verificationCode = `${Math.floor(1000 + Math.random() * 9000)}`; await verificationsCollection.insertOne({ _id: verificationCode, discordId: user.id, drednotName: drednotNameToLink, timestamp: Date.now() }); let replyMessage = `**Account Verification Started!**\n\n` + `1. **[Click here to join the verification ship!](${DREDNOT_INVITE_LINK})**\n\n` + `2. Once in-game, copy and paste the following command into the chat:\n` + `\`\`\`\n` + `!verify ${verificationCode}\n` + `\`\`\`\n` + `This code expires in 5 minutes.`; if (!isNewUser) { replyMessage += `\n\n**Note:** You have progress on this Discord account. Verifying will merge it with your **${drednotNameToLink}** account.` } await interaction.editReply({ content: replyMessage }); return; } case 'name': { if (account.drednotName) { return interaction.editReply({ content: `You cannot set a display name because your account is already linked to **${account.drednotName}**. That name is used on the leaderboard.` }); } const newName = options.getString('new_name'); if (newName.length < 3 || newName.length > 16) { return interaction.editReply({ content: 'Your name must be between 3 and 16 characters long.' }); } const existingNameAccount = await economyCollection.findOne({ $or: [ { drednotName: new RegExp(`^${newName}$`, 'i') }, { displayName: new RegExp(`^${newName}$`, 'i') } ] }); if (existingNameAccount) { return interaction.editReply({ content: `That name is already in use by another player. Please choose a different name.` }); } await updateAccount(user.id, { displayName: newName }); return interaction.editReply({ content: `Success! Your display name has been set to **${newName}**.` }); } 
 case 'balance': {
     const targetDiscordUser = options.getUser('user');
     let targetAccount = account;
@@ -1115,9 +1263,10 @@ case 'balance': {
     break;
 }
 
+// UPDATED CASE
 case 'grid': {
     const sub = options.getSubcommand();
-    const powerGrid = account.powerGrid || { slots: [null, null, null] };
+    const powerGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
 
     if (sub === 'view') {
         let generation = 0, consumption = 0, bitsGeneration = 0;
@@ -1133,25 +1282,45 @@ case 'grid': {
         const netPower = generation - consumption;
         const status = netPower >= 0 ? '✅ Online' : '❌ Offline';
         const finalBitsGeneration = netPower >= 0 ? bitsGeneration : 0;
+        const currentSlots = powerGrid.slots.length;
+        
+        let upgradeFooter = `Your grid is max level (6 slots).`;
+        if (currentSlots < GRID_MAX_SLOTS) {
+            const upgradeCost = GRID_UPGRADE_COSTS[currentSlots];
+            upgradeFooter = `Upgrade to ${currentSlots + 1} slots for ${upgradeCost.toLocaleString()} Bits with /grid upgrade`;
+        }
 
         const gridEmbed = new EmbedBuilder()
             .setColor(netPower >= 0 ? '#57F287' : '#ED4245')
-            .setTitle(`⚡ ${user.username}'s Power Grid`)
+            .setTitle(`⚡ ${user.username}'s Power Grid (${currentSlots}/${GRID_MAX_SLOTS} Slots)`)
             .setDescription(slotDisplays.join('\n'))
             .addFields(
                 { name: 'Power Status', value: `Gen: **${generation}**/hr\nUse: **${consumption}**/hr\nNet: **${netPower > 0 ? '+' : ''}${netPower}**/hr`, inline: true },
                 { name: 'System Status', value: `**${status}**`, inline: true },
                 { name: 'Passive Rewards', value: `💰 **+${finalBitsGeneration}** Bits/hr`, inline: true }
-            );
+            )
+            .setFooter({ text: upgradeFooter });
 
         return interaction.editReply({ embeds: [gridEmbed] });
+    }
+    
+    if (sub === 'upgrade') {
+        const result = await handleGridUpgrade(account);
+        const embed = new EmbedBuilder()
+            .setColor(result.success ? '#57F287' : '#ED4245')
+            .setDescription(result.message);
+        return interaction.editReply({ embeds: [embed] });
     }
 
     if (sub === 'place') {
         const slot = options.getInteger('slot');
         const buildingName = options.getString('building');
         const buildingId = getItemIdByName(buildingName);
+        const currentSlots = powerGrid.slots.length;
 
+        if (slot > currentSlots) {
+             return interaction.editReply({ content: `You only have ${currentSlots} grid slots. You cannot place in slot ${slot}.` });
+        }
         if (!buildingId || !BUILDINGS[buildingId]) {
             return interaction.editReply({ content: `"${buildingName}" is not a valid, placeable building.` });
         }
@@ -1160,7 +1329,7 @@ case 'grid': {
         }
         
         const slotIndex = slot - 1;
-        const currentGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+        const currentGrid = account.powerGrid || { slots: [], lastTick: Date.now() };
 
         if (currentGrid.slots[slotIndex]) {
             await modifyInventory(account._id, currentGrid.slots[slotIndex], 1);
@@ -1176,8 +1345,11 @@ case 'grid': {
     if (sub === 'remove') {
         const slot = options.getInteger('slot');
         const slotIndex = slot - 1;
-        const currentGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+        const currentGrid = account.powerGrid || { slots: [], lastTick: Date.now() };
 
+        if (slot > currentGrid.slots.length) {
+             return interaction.editReply({ content: `Invalid slot. You only have ${currentGrid.slots.length} slots.` });
+        }
         const buildingInSlot = currentGrid.slots[slotIndex];
         if (!buildingInSlot) {
             return interaction.editReply({ content: `Slot ${slot} is already empty.` });
@@ -1191,6 +1363,7 @@ case 'grid': {
     }
     break;
 }
+
 case 'inventory': {
     const itemNameFilter = options.getString('item_name');
     const targetDiscordUser = options.getUser('user');
@@ -1242,9 +1415,12 @@ case 'timers': { const timerLines = await handleTimers(account); const timerEmbe
 app.get("/", (req, res) => res.send("Bot is alive!"));
 app.post('/command', async (req, res) => { try { const apiKey = req.headers['x-api-key']; if (apiKey !== YOUR_API_KEY) return res.status(401).send('Error: Invalid API key'); const { command, username, args } = req.body; if(!command || !username) { return res.status(400).json({reply: "Invalid request body."}); } const identifier = username.toLowerCase(); let responseMessage = ''; if (command === 'verify') { const code = args[0]; const verificationData = await verificationsCollection.findOneAndDelete({ _id: code }); if (!verificationData) { responseMessage = 'That verification code is invalid, expired, or has already been used.'; } else if (Date.now() - verificationData.timestamp > 5 * 60 * 1000) { responseMessage = 'That verification code has expired.'; } else if (verificationData.drednotName.toLowerCase() !== username.toLowerCase()) { responseMessage = 'This verification code is for a different Drednot user and has now been invalidated.'; } else { const mergeResult = await handleAccountMerge(verificationData.discordId, verificationData.drednotName); responseMessage = mergeResult.message; if (mergeResult.success) { try { const discordUser = await client.users.fetch(verificationData.discordId); discordUser.send(mergeResult.message); } catch (e) { console.log("Couldn't send DM confirmation for merge."); } } } return res.json({ reply: responseMessage }); } if (['n', 'next', 'p', 'previous'].includes(command)) { const session = userPaginationData[identifier]; if (!session) return res.json({ reply: 'You have no active list to navigate.' }); const pageChange = (command.startsWith('n')) ? 1 : -1; const { game } = getPaginatedResponse(identifier, session.type, session.lines, session.title, pageChange); return res.json({ reply: game.map(line => cleanText(line)) }); } let account = await getAccount(username); if (!account) { const conflictingDiscordUser = await economyCollection.findOne({ displayName: new RegExp(`^${username}$`, 'i') }); if (conflictingDiscordUser) { console.log(`[Name Bump] Drednot user "${username}" is claiming a name from Discord user ${conflictingDiscordUser._id}.`); await economyCollection.updateOne({ _id: conflictingDiscordUser._id }, { $set: { displayName: null, wasBumped: true } }); } account = await createNewAccount(username, 'drednot'); const welcomeMessage = [`Welcome! Your new economy account "${username}" has been created with ${STARTING_BALANCE} Bits and two random traits.`, `Join the Discord for the full experience:`, `${DISCORD_INVITE_LINK}`]; return res.json({ reply: welcomeMessage }); } else { account = await selfHealAccount(account); } let result; const cleanText = (text) => { let processedText = Array.isArray(text) ? text.map(t => String(t)).join('\n') : String(text); processedText = processedText.replace(/\*\*([^*]+)\*\*/g, (match, p1) => toBoldFont(p1)); return processedText.replace(/`|>/g, '').replace(/<a?:.+?:\d+>/g, '').replace(/<:[a-zA-Z0-9_]+:[0-9]+>/g, ''); }; switch (command) {
 // --- GRID SYSTEM ---
+// UPDATED CASE
 case 'grid': {
-    const powerGrid = account.powerGrid || { slots: [null, null, null] };
+    const powerGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
     let generation = 0, consumption = 0, bitsGeneration = 0;
+    const currentSlots = powerGrid.slots.length;
+
     const slotDisplays = powerGrid.slots.map((buildingId, index) => {
         if (!buildingId) return `[Slot ${index + 1}: ⚫ Empty]`;
         const building = BUILDINGS[buildingId];
@@ -1257,28 +1433,46 @@ case 'grid': {
     const netPower = generation - consumption;
     const status = netPower >= 0 ? '✅ Online' : '❌ Offline';
     const finalBitsGeneration = netPower >= 0 ? bitsGeneration : 0;
+    
+    let upgradeText = `Your grid is max level!`;
+    if (currentSlots < GRID_MAX_SLOTS) {
+        const upgradeCost = GRID_UPGRADE_COSTS[currentSlots];
+        upgradeText = `Upgrade to ${currentSlots + 1} slots with !gridup (${upgradeCost.toLocaleString()} Bits)`;
+    }
 
     const gridStatus = [
-        `--- ${toBoldFont("Your Power Grid")} ---`,
+        `--- ${toBoldFont(`Your Power Grid (${currentSlots}/${GRID_MAX_SLOTS})`)} ---`,
         slotDisplays.join(' | '),
         `-------------------------`,
         `⚡ Power: ${generation}/hr (gen) - ${consumption}/hr (use) = ${netPower >= 0 ? '+' : ''}${netPower}/hr (net)`,
         `💰 Bits: +${finalBitsGeneration}/hr`,
-        `System Status: ${status}`
+        `System Status: ${status}`,
+        `-------------------------`,
+        upgradeText
     ];
     responseMessage = gridStatus;
     break;
 }
+// NEW CASE
+case 'gridup': {
+    result = await handleGridUpgrade(account);
+    responseMessage = result.message;
+    break;
+}
 case 'gridp': {
     if (args.length < 2) {
-        responseMessage = "Usage: !gridp <slot 1-3> <building name>";
+        responseMessage = "Usage: !gridp <slot> <building name>";
         break;
     }
     const slot = parseInt(args[0], 10);
-    if (isNaN(slot) || slot < 1 || slot > 3) {
-        responseMessage = "Invalid slot. Please choose a slot from 1 to 3.";
+    const powerGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+    const currentSlots = powerGrid.slots.length;
+
+    if (isNaN(slot) || slot < 1 || slot > currentSlots) {
+        responseMessage = `Invalid slot. You have ${currentSlots} slots available (1-${currentSlots}).`;
         break;
     }
+    
     const buildingName = args.slice(1).join(' ');
     const buildingId = getItemIdByName(buildingName);
 
@@ -1292,7 +1486,7 @@ case 'gridp': {
         break;
     }
 
-    const currentGrid = account.powerGrid || { slots: [null, null, null], lastTick: Date.now() };
+    const currentGrid = account.powerGrid;
     const slotIndex = slot - 1;
 
     // Return the currently placed item to inventory if the slot is occupied
@@ -1309,7 +1503,39 @@ case 'gridp': {
     break;
 }
 // --- END GRID SYSTEM ---
-case 'clan': { const subCommand = args[0]?.toLowerCase() || 'help'; const clanArgs = args.slice(1); let clanResult; switch (subCommand) { case 'create': if (clanArgs.length < 1) { clanResult = { message: "Usage: !clan create <name>" }; break; } const clanNameOnly = clanArgs.join(' '); clanResult = await handleClanCreate(account, clanNameOnly); break; case 'leave': clanResult = await handleClanLeave(account); break; case 'disband': clanResult = await handleClanDisband(account); break; case 'kick': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan kick <username>" }; break; } const targetAccKick = await getAccount(clanArgs.join(' ')); if (!targetAccKick) clanResult = { message: "Player not found." }; else clanResult = await handleClanKick(account, targetAccKick); break; case 'recruit': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan recruit <1|2>" }; break; } clanResult = await handleClanRecruit(account, clanArgs[0]); break; case 'upgrade': clanResult = await handleClanUpgrade(account); break; case 'donate': const amount = parseInt(clanArgs[0], 10); clanResult = await handleClanDonate(account, amount); break; case 'info': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan info <code>" }; break; } clanResult = await handleClanInfo(clanArgs[0]); if (clanResult.embed) { const embed = clanResult.embed.data; let textResponse = [`--- ${embed.title} ---`, embed.description]; embed.fields.forEach(field => { textResponse.push(`\n${field.name}:`); textResponse.push(`${field.value}`); }); clanResult = { message: textResponse.join('\n') }; } break; case 'list': clanResult = await handleClanList(); if (clanResult.success) { const paginated = getPaginatedResponse(identifier, 'clan_list', clanResult.lines, 'Clan Browser', 0); return res.json({ reply: paginated.game.map(line => cleanText(line)) }); } break; case 'war': clanResult = await handleClanWar(); break; case 'join': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan join <code>" }; break; } clanResult = await handleClanJoin(account, clanArgs[0]); break; case 'invite': const targetName = clanArgs.join(' '); if (targetName) { const targetAccInv = await getAccount(targetName); if (!targetAccInv) clanResult = { message: "Player not found." }; else clanResult = await handleClanInvite(account, targetAccInv); } else { clanResult = await handleClanInvite(account, account.clanId ? 'view' : null); } break; case 'accept': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan accept <user_or_code>" }; break; } clanResult = await handleClanAccept(account, clanArgs[0]); break; case 'decline': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan decline <code>" }; break; } clanResult = await handleClanDecline(account, clanArgs[0]); break; default: clanResult = { message: `Unknown clan command. Use !clan list, !info, etc.` }; } responseMessage = clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : 'An error occurred.'); break; } case 'info': if (args.length === 0) { responseMessage = "Usage: !info <item/trait name>"; break; } const name = args.join(' '); const itemId = getItemIdByName(name); const traitId = Object.keys(TRAITS).find(k => TRAITS[k].name.toLowerCase() === name.toLowerCase()); if (itemId) { responseMessage = cleanText(handleItemInfo(itemId)); } else if (traitId) { const trait = TRAITS[traitId]; let effectText = ''; switch (traitId) { case 'scavenger': effectText = `Grants a 5% chance per level to find bonus resources from /work.`; break; case 'prodigy': effectText = `Reduces /work and /gather cooldowns by 5% per level.`; break; case 'wealth': effectText = `Increases Bits earned from /work by 5% per level.`; break; case 'surveyor': effectText = `Grants a 2% chance per level to double your entire haul from /gather.`; break; case 'collector': effectText = `Increases the bonus reward for first-time crafts by 20% per level.`; break; case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by 50% per level.`; break; case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by 2.5% per level. Stacks do not decay.`; break; default: effectText = trait.description.replace(/{.*?}/g, '...'); } responseMessage = [`Trait: ${trait.name} (${trait.rarity})`, effectText, `Max Level: ${trait.maxLevel}`].join('\n'); } else { responseMessage = `Could not find an item or trait named "${name}".`; } break; case 'traits': let traitMessage = `Your Traits:\n`; if(account.traits && account.traits.slots) { for (const trait of account.traits.slots) { const t = TRAITS[trait.name]; traitMessage += `> ${t.name} (Level ${trait.level}) - ${t.rarity}\n`; } } else { traitMessage = "You have no traits yet."; } responseMessage = cleanText(traitMessage); break; case 'traitroll': if ((account.inventory['trait_reforger'] || 0) < 1) { responseMessage = `You need a Trait Reforger to do this.`; } else { await modifyInventory(username, 'trait_reforger', -1); const newTraits = [rollNewTrait(), rollNewTrait()]; await economyCollection.updateOne({ _id: account._id }, { $set: { 'traits.slots': newTraits } }); let rollMessage = `You consumed a Trait Reforger and received:\n`; for (const trait of newTraits) { const t = TRAITS[trait.name]; rollMessage += `> ${t.name} (Level ${trait.level}) - ${t.rarity}\n`; } responseMessage = cleanText(rollMessage); } break; case 'eat': if (args.length === 0) { responseMessage = "Usage: !eat <food name>"; break; } const foodName = args.join(' '); result = await handleEat(account, foodName); responseMessage = cleanText(result.message); break; case 'm': case 'market': const marketFilter = args.length > 0 ? args.join(' ') : null; result = await handleMarket(marketFilter); if (!result.success) { responseMessage = result.lines[0]; break; } const marketPage = getPaginatedResponse(identifier, 'market', result.lines, marketFilter ? `Market (Filter: ${marketFilter})` : "Market", 0); responseMessage = marketPage.game.map(line => cleanText(line)); break; case 'lb': case 'leaderboard': result = await handleLeaderboard(); if (!result.success) { responseMessage = result.lines[0]; break; } const lbPage = getPaginatedResponse(identifier, 'leaderboard', result.lines, "Leaderboard", 0); responseMessage = lbPage.game.map(line => cleanText(line)); break; case 'recipes': const recipeLines = (await handleRecipes()).split('\n'); const recipeTitle = recipeLines.shift(); result = getPaginatedResponse(identifier, 'recipes', recipeLines, recipeTitle, 0); responseMessage = result.game.map(line => cleanText(line)); break; 
+case 'clan': { const subCommand = args[0]?.toLowerCase() || 'help'; const clanArgs = args.slice(1); let clanResult; switch (subCommand) { case 'create': if (clanArgs.length < 1) { clanResult = { message: "Usage: !clan create <name>" }; break; } const clanNameOnly = clanArgs.join(' '); clanResult = await handleClanCreate(account, clanNameOnly); break; case 'leave': clanResult = await handleClanLeave(account); break; case 'disband': clanResult = await handleClanDisband(account); break; case 'kick': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan kick <username>" }; break; } const targetAccKick = await getAccount(clanArgs.join(' ')); if (!targetAccKick) clanResult = { message: "Player not found." }; else clanResult = await handleClanKick(account, targetAccKick); break; case 'recruit': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan recruit <1|2>" }; break; } clanResult = await handleClanRecruit(account, clanArgs[0]); break; case 'upgrade': clanResult = await handleClanUpgrade(account); break; case 'donate': const amount = parseInt(clanArgs[0], 10); clanResult = await handleClanDonate(account, amount); break; case 'info': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan info <code>" }; break; } clanResult = await handleClanInfo(clanArgs[0]); if (clanResult.embed) { const embed = clanResult.embed.data; let textResponse = [`--- ${embed.title} ---`, embed.description]; embed.fields.forEach(field => { textResponse.push(`\n${field.name}:`); textResponse.push(`${field.value}`); }); clanResult = { message: textResponse.join('\n') }; } break; case 'list': clanResult = await handleClanList(); if (clanResult.success) { const paginated = getPaginatedResponse(identifier, 'clan_list', clanResult.lines, 'Clan Browser', 0); return res.json({ reply: paginated.game.map(line => cleanText(line)) }); } break; case 'war': clanResult = await handleClanWar(); break; case 'join': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan join <code>" }; break; } clanResult = await handleClanJoin(account, clanArgs[0]); break; case 'invite': const targetName = clanArgs.join(' '); if (targetName) { const targetAccInv = await getAccount(targetName); if (!targetAccInv) clanResult = { message: "Player not found." }; else clanResult = await handleClanInvite(account, targetAccInv); } else { clanResult = await handleClanInvite(account, account.clanId ? 'view' : null); } break; case 'accept': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan accept <user_or_code>" }; break; } clanResult = await handleClanAccept(account, clanArgs[0]); break; case 'decline': if (!clanArgs[0]) { clanResult = { message: "Usage: !clan decline <code>" }; break; } clanResult = await handleClanDecline(account, clanArgs[0]); break; default: clanResult = { message: `Unknown clan command. Use !clan list, !info, etc.` }; } responseMessage = clanResult.message || (clanResult.lines ? clanResult.lines.join('\n') : 'An error occurred.'); break; } 
+// UPDATED CASE
+case 'info': {
+    if (args.length === 0) {
+        responseMessage = "Usage: !info <item/trait name>";
+        break;
+    }
+    const name = args.join(' ');
+    const itemId = getItemIdByName(name);
+    const traitId = Object.keys(TRAITS).find(k => TRAITS[k].name.toLowerCase() === name.toLowerCase());
+
+    if (itemId) {
+        responseMessage = cleanText(handleItemInfo(itemId));
+    } else if (traitId) {
+        const trait = TRAITS[traitId];
+        let effectText = '';
+        switch (traitId) {
+            case 'scavenger': effectText = `Grants a 5% chance per level to find bonus resources from /work.`; break;
+            case 'prodigy': effectText = `Reduces /work and /gather cooldowns by 5% per level.`; break;
+            case 'wealth': effectText = `Increases Bits earned from /work by 5% per level.`; break;
+            case 'surveyor': effectText = `Grants a 2% chance per level to double your entire haul from /gather.`; break;
+            case 'collector': effectText = `Increases the bonus reward for first-time crafts by 20% per level.`; break;
+            case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by 50% per level.`; break;
+            case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by 2.5% per level. Stacks do not decay.`; break;
+            default: effectText = trait.description.replace(/{.*?}/g, '...');
+        }
+        responseMessage = [`--- ${toBoldFont(`${trait.name} (${trait.rarity})`)} ---`, effectText, `Max Level: ${trait.maxLevel}`].join('\n');
+    } else {
+        responseMessage = `Could not find an item or trait named "${name}".`;
+    }
+    break;
+}
+case 'traits': let traitMessage = `Your Traits:\n`; if(account.traits && account.traits.slots) { for (const trait of account.traits.slots) { const t = TRAITS[trait.name]; traitMessage += `> ${t.name} (Level ${trait.level}) - ${t.rarity}\n`; } } else { traitMessage = "You have no traits yet."; } responseMessage = cleanText(traitMessage); break; case 'traitroll': if ((account.inventory['trait_reforger'] || 0) < 1) { responseMessage = `You need a Trait Reforger to do this.`; } else { await modifyInventory(username, 'trait_reforger', -1); const newTraits = [rollNewTrait(), rollNewTrait()]; await economyCollection.updateOne({ _id: account._id }, { $set: { 'traits.slots': newTraits } }); let rollMessage = `You consumed a Trait Reforger and received:\n`; for (const trait of newTraits) { const t = TRAITS[trait.name]; rollMessage += `> ${t.name} (Level ${trait.level}) - ${t.rarity}\n`; } responseMessage = cleanText(rollMessage); } break; case 'eat': if (args.length === 0) { responseMessage = "Usage: !eat <food name>"; break; } const foodName = args.join(' '); result = await handleEat(account, foodName); responseMessage = cleanText(result.message); break; case 'm': case 'market': const marketFilter = args.length > 0 ? args.join(' ') : null; result = await handleMarket(marketFilter); if (!result.success) { responseMessage = result.lines[0]; break; } const marketPage = getPaginatedResponse(identifier, 'market', result.lines, marketFilter ? `Market (Filter: ${marketFilter})` : "Market", 0); responseMessage = marketPage.game.map(line => cleanText(line)); break; case 'lb': case 'leaderboard': result = await handleLeaderboard(); if (!result.success) { responseMessage = result.lines[0]; break; } const lbPage = getPaginatedResponse(identifier, 'leaderboard', result.lines, "Leaderboard", 0); responseMessage = lbPage.game.map(line => cleanText(line)); break; case 'recipes': const recipeLines = (await handleRecipes()).split('\n'); const recipeTitle = recipeLines.shift(); result = getPaginatedResponse(identifier, 'recipes', recipeLines, recipeTitle, 0); responseMessage = result.game.map(line => cleanText(line)); break; 
 case 'bal':
 case 'balance': {
     let targetAccount = account;
