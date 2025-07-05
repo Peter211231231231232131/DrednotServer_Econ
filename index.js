@@ -1,4 +1,4 @@
-/ index.js (Final Merged & Upgraded Script with Clans & Power Grid)
+// index.js (Final Merged & Upgraded Script with Clans & Power Grid)
 
 // --- Library Imports ---
 const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
