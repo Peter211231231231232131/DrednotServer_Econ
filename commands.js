@@ -1,6 +1,7 @@
 const IN_GAME_COMMANDS = [
     // General & Economy
     { command: '!bal [user]', description: 'Check your or another user\'s balance.' },
+    { command: '!verify <code>', description: 'Used to link your Discord account.' },
     { command: '!inv [user|filter]', description: 'View your/another inventory, or filter your own.' },
     { command: '!timers', description: 'Check your action cooldowns.' },
     { command: '!work', description: 'Work to earn Bits.' },
