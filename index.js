@@ -14,7 +14,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 process.on('uncaughtException', (error) => {
   console.error('CRITICAL: Uncaught Exception:', error);
-  process.exit(1); // Exit on critical error to allow for a clean restart
+  process.exit(1);
 });
 // =========================================================================
 
@@ -23,7 +23,7 @@ const app = express();
 const port = 3000;
 app.use(express.json());
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildMembers] });
-const YOUR_API_KEY = process.env.YOUR_API_KEY || 'drednot123'; // Use environment variable
+const YOUR_API_KEY = process.env.YOUR_API_KEY || 'drednot123'; 
 
 // =========================================================================
 // --- MONGODB DATABASE & IN-MEMORY STATE ---
@@ -75,7 +75,7 @@ const MINIMUM_ACTION_COOLDOWN_MS = 1000;
 const ZEALOT_DECAY_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 
 const EVENT_CHANNEL_ID = '1231644783350911006'; // <-- IMPORTANT: SET THIS
-const DREDNOT_INVITE_LINK = 'https://drednot.io/invite/wQcS5UHUS5wkGVCKvSDyTMa_';
+const DREDNOT_INVITE_LINK = 'https://drednot.io/invite/KOciB52Quo4z_luxo7zAFKPc';
 const EVENT_TICK_INTERVAL_MINUTES = 5;
 const EVENT_CHANCE = 0.15;
 const EVENTS = {
