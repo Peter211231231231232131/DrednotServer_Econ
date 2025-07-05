@@ -18,7 +18,7 @@ const commands = [
         description: "Check your balance or another player's balance.",
         options: [{
             name: 'user',
-            type: 6,
+            type: 6, // USER TYPE
             description: "The user whose balance you want to check (optional).",
             required: false
         }]
@@ -31,13 +31,13 @@ const commands = [
         options: [
             {
                 name: 'item_name',
-                type: 3, 
+                type: 3, // STRING TYPE
                 description: 'Optional: name of an item to inspect',
                 required: false
             },
             {
                 name: 'user',
-                type: 6, 
+                type: 6, // USER TYPE
                 description: "The user whose inventory you want to check (optional).",
                 required: false
             }
@@ -82,6 +82,7 @@ const commands = [
             { type: 1, name: 'decline', description: 'Decline a clan application or invitation.', options: [{ name: 'code', type: 3, description: 'The 5-character code of the clan', required: true }] },
         ]
     },
+    // ---- THIS IS THE UPDATED /grid COMMAND ----
     {
         name: 'grid',
         description: 'Interact with your Power Grid.',
@@ -89,14 +90,21 @@ const commands = [
             {
                 type: 1,
                 name: 'view',
-                description: 'View your Power Grid status.'
+                description: 'View your Power Grid status and upgrade costs.'
+            },
+            // NEW SUBCOMMAND
+            {
+                type: 1,
+                name: 'upgrade',
+                description: 'Upgrade your power grid to add another slot.'
             },
             {
                 type: 1,
                 name: 'place',
                 description: 'Place a crafted building onto your grid.',
                 options: [
-                    { name: 'slot', type: 4, description: 'The grid slot to place the building in (1-3).', required: true, choices: [{name: 'Slot 1', value: 1}, {name: 'Slot 2', value: 2}, {name: 'Slot 3', value: 3}] },
+                    // MODIFIED: Removed hardcoded choices to allow for more slots
+                    { name: 'slot', type: 4, description: 'The grid slot number to place the building in.', required: true },
                     { name: 'building', type: 3, description: 'The name of the building to place from your inventory.', required: true, autocomplete: true }
                 ]
             },
@@ -105,7 +113,8 @@ const commands = [
                 name: 'remove',
                 description: 'Remove a building from a grid slot, returning it to your inventory.',
                  options: [
-                    { name: 'slot', type: 4, description: 'The grid slot to clear (1-3).', required: true, choices: [{name: 'Slot 1', value: 1}, {name: 'Slot 2', value: 2}, {name: 'Slot 3', value: 3}] }
+                    // MODIFIED: Removed hardcoded choices to allow for more slots
+                    { name: 'slot', type: 4, description: 'The grid slot number to clear.', required: true }
                 ]
             },
         ]
