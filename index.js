@@ -1462,7 +1462,19 @@ async function handleSlashCommand(interaction) {
 // =========================================================================
 // --- IN-GAME (API) COMMAND HANDLER ---
 // =========================================================================
-app.get("/", (req, res) => res.send("Bot is alive!"));
+// NEW: Endpoint to fetch the list of in-game commands
+app.get('/commands', (req, res) => {
+    // API key check for security
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey !== YOUR_API_KEY) {
+        return res.status(401).send('Error: Invalid API key');
+    }
+    const formattedCommands = IN_GAME_COMMANDS.map(
+        cmd => `${cmd.command} - ${cmd.description}`
+    );
+    
+    res.json(formattedCommands);
+});
 app.post('/command', async (req, res) => { try { const apiKey = req.headers['x-api-key']; if (apiKey !== YOUR_API_KEY) return res.status(401).send('Error: Invalid API key'); const { command, username, args } = req.body; if(!command || !username) { return res.status(400).json({reply: "Invalid request body."}); } const identifier = username.toLowerCase(); let responseMessage = ''; if (command === 'verify') { const code = args[0]; const verificationData = await verificationsCollection.findOneAndDelete({ _id: code }); if (!verificationData) { responseMessage = 'That verification code is invalid, expired, or has already been used.'; } else if (Date.now() - verificationData.timestamp > 5 * 60 * 1000) { responseMessage = 'That verification code has expired.'; } else if (verificationData.drednotName.toLowerCase() !== username.toLowerCase()) { responseMessage = 'This verification code is for a different Drednot user and has now been invalidated.'; } else { const mergeResult = await handleAccountMerge(verificationData.discordId, verificationData.drednotName); responseMessage = mergeResult.message; if (mergeResult.success) { try { const discordUser = await client.users.fetch(verificationData.discordId); discordUser.send(mergeResult.message); } catch (e) { console.log("Couldn't send DM confirmation for merge."); } } } return res.json({ reply: responseMessage }); } if (['n', 'next', 'p', 'previous'].includes(command)) { const session = userPaginationData[identifier]; if (!session) return res.json({ reply: 'You have no active list to navigate.' }); const pageChange = (command.startsWith('n')) ? 1 : -1; const { game } = getPaginatedResponse(identifier, session.type, session.lines, session.title, pageChange); return res.json({ reply: game.map(line => cleanText(line)) }); } let account = await getAccount(username); if (!account) { const conflictingDiscordUser = await economyCollection.findOne({ displayName: new RegExp(`^${username}$`, 'i') }); if (conflictingDiscordUser) { console.log(`[Name Bump] Drednot user "${username}" is claiming a name from Discord user ${conflictingDiscordUser._id}.`); await economyCollection.updateOne({ _id: conflictingDiscordUser._id }, { $set: { displayName: null, wasBumped: true } }); } account = await createNewAccount(username, 'drednot'); const welcomeMessage = [`Welcome! Your new economy account "${username}" has been created with ${STARTING_BALANCE} Bits and two random traits.`, `Join the Discord for the full experience:`, `${DISCORD_INVITE_LINK}`]; return res.json({ reply: welcomeMessage }); } else { account = await selfHealAccount(account); } let result; const cleanText = (text) => { let processedText = Array.isArray(text) ? text.map(t => String(t)).join('\n') : String(text); processedText = processedText.replace(/\*\*([^*]+)\*\*/g, (match, p1) => toBoldFont(p1)); return processedText.replace(/`|>/g, '').replace(/<a?:.+?:\d+>/g, '').replace(/<:[a-zA-Z0-9_]+:[0-9]+>/g, ''); }; switch (command) {
 // --- GRID SYSTEM ---
 case 'grid': {
