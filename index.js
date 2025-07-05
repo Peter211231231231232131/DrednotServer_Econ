@@ -5,7 +5,7 @@ const { Client, GatewayIntentBits, MessageFlags, ActionRowBuilder, ButtonBuilder
 const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const crypto = require('crypto');
-
+const { IN_GAME_COMMANDS } = require('./commands.js');
 // =========================================================================
 // --- STABILITY: GLOBAL ERROR HANDLERS ---
 // =========================================================================
