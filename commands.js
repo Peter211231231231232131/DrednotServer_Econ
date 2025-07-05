@@ -1,0 +1,32 @@
+const IN_GAME_COMMANDS = [
+    { command: '!bal [user]', description: 'Check your or another user\'s balance.' },
+    { command: '!inv [user|filter]', description: 'View your or another user\'s inventory, or filter your own.' },
+    { command: '!timers', description: 'Check your action cooldowns.' },
+    { command: '!work', description: 'Work to earn Bits.' },
+    { command: '!gather', description: 'Gather for resources.' },
+    { command: '!daily', description: 'Claim your daily reward.' },
+    { command: '!hourly', description: 'Claim your hourly reward.' },
+    { command: '!craft <item> [qty]', description: 'Craft an item.' },
+    { command: '!recipes', description: 'View all available crafting recipes.' },
+    { command: '!smelt <item> [qty]', description: 'Smelt ore or cook food.' },
+    { command: '!eat <food>', description: 'Eat food to gain a buff.' },
+    { command: '!m [filter]', description: 'View the player market. Alias: !market' },
+    { command: '!ms <item> <qty> <price>', description: 'List an item for sale. Alias: !marketsell' },
+    { command: '!mb <id>', description: 'Buy a listing from the market. Alias: !marketbuy' },
+    { command: '!mc <id>', description: 'Cancel your market listing. Alias: !marketcancel' },
+    { command: '!pay <user> <amount>', description: 'Pay another player.' },
+    { command: '!flip <amt> <h/t>', description: 'Flip a coin for a bet.' },
+    { command: '!slots <amount>', description: 'Play the slot machine.' },
+    { command: '!traits', description: 'View your current traits.' },
+    { command: '!traitroll', description: 'Reroll your traits using a Trait Reforger.' },
+    { command: '!clan <sub-cmd>', description: 'Manage your clan (use !clan help for more).' },
+    { command: '!grid', description: 'View your power grid.' },
+    { command: '!gridup', description: 'Upgrade your power grid size.' },
+    { command: '!gridp <slot> <bldg>', description: 'Place a building in your grid.' },
+    { command: '!cs', description: 'View the crate shop.' },
+    { command: '!csb <crate> <amt>', description: 'Buy and open crates from the shop.' },
+    { command: '!n / !p', description: 'Navigate multi-page lists (next/previous).' },
+];
+
+// This line makes the IN_GAME_COMMANDS array available to other files
+module.exports = { IN_GAME_COMMANDS };
