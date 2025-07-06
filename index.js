@@ -606,15 +606,26 @@ async function handleGather(account) {
         
         if (secureRandomFloat() < chance) {
             let baseQty = Math.floor(secureRandomFloat() * (GATHER_TABLE[itemId].maxQty - GATHER_TABLE[itemId].minQty + 1)) + GATHER_TABLE[itemId].minQty;
-           let basketBonus = 0;
+let totalBasketBonus = 0;
 if (basketCount > 0) {
-    const mean = basketCount * 0.5; 
-    const stdDev = Math.sqrt(basketCount * 0.5 * 0.5);
-    const u1 = secureRandomFloat();
-    const u2 = secureRandomFloat();
-    const random_normal = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-    const rawBonus = mean + stdDev * random_normal;
-    basketBonus = Math.round(Math.max(0, rawBonus));
+    const tierSize = 10000;
+    const baseChance = 0.5;
+    let effectivenessMultiplier = 1.0;
+    let remainingBaskets = basketCount;
+    while (remainingBaskets > 0) {
+        const basketsInThisTier = Math.min(remainingBaskets, tierSize);
+        const currentChance = baseChance * effectivenessMultiplier;
+        const mean = basketsInThisTier * currentChance;
+        const stdDev = Math.sqrt(basketsInThisTier * currentChance * (1 - currentChance));
+        const u1 = secureRandomFloat();
+        const u2 = secureRandomFloat();
+        const random_normal = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+        const rawBonus = mean + stdDev * random_normal;
+        const tierBonus = Math.round(Math.max(0, rawBonus));
+        totalBasketBonus += tierBonus;
+        remainingBaskets -= basketsInThisTier;.
+        effectivenessMultiplier = Math.max(0.1, effectivenessMultiplier - 0.1);
+    }
 }
             const finalQty = baseQty + basketBonus + totalAbundanceBonus;
             incUpdates[`inventory.${itemId}`] = (incUpdates[`inventory.${itemId}`] || 0) + finalQty;
