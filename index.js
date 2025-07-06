@@ -472,10 +472,10 @@ async function handleWork(account) {
 
     let doubleOrNothingMessage = '';
     if (isDoubleOrNothingActive) {
-        if (secureRandomFloat() < 0.5) { // Win
+        if (secureRandomFloat() < 0.5) {
             totalEarnings *= 2;
             doubleOrNothingMessage = `\n> 🌶️ **DOUBLE!** Your Spicy Pepper paid off!`;
-        } else { // Loss
+        } else {
             totalEarnings = 0;
             doubleOrNothingMessage = `\n> 🌶️ **NOTHING!** Your Spicy Pepper was a dud!`;
         }
@@ -487,26 +487,6 @@ async function handleWork(account) {
         eventMessage = ` **(x${currentGlobalEvent.effect.multiplier} ${currentGlobalEvent.name}!)**`;
     }
 
-    // --- GRID SYSTEM ---
-    let towerMessage = '';
-    let powerGeneration = 0;
-    let powerConsumption = 0;
-    (account.powerGrid?.slots || []).forEach(buildingId => {
-        if (buildingId && BUILDINGS[buildingId]) {
-            const building = BUILDINGS[buildingId];
-            powerGeneration += building.effects.power_generation || 0;
-            powerConsumption += building.effects.power_consumption || 0;
-        }
-    });
-
-    if (powerGeneration >= powerConsumption && (account.powerGrid?.slots || []).includes('tower')) {
-        if (secureRandomFloat() < 0.10) { // 10% chance
-            const bonusFromTower = totalEarnings;
-            totalEarnings *= 2;
-            towerMessage = `\n> 🗼 **SURGE!** Your Tower duplicated your earnings, granting an extra **${Math.round(bonusFromTower)}** ${CURRENCY_NAME}!`;
-        }
-    }
-    // --- END GRID SYSTEM ---
     
     if (!isFinite(totalEarnings) || isNaN(totalEarnings)) { return { success: false, message: "An error occurred calculating earnings." }; }
     
@@ -594,7 +574,7 @@ async function handleGather(account) {
     if (!cooldownReset && account.lastGather && (now - account.lastGather) < currentCooldown) { return { success: false, message: `You are tired. Wait **${formatDuration((currentCooldown - (now - account.lastGather)) / 1000)}**.` }; }
 
     const basketCount = account.inventory['gathering_basket'] || 0;
-    const maxTypes = MAX_GATHER_TYPES_BASE + basketCount;
+    const maxTypes = MAX_GATHER_TYPES_BASE + Math.floor(Math.log2(1 + basketCount));
     let gatheredItems = [];
     let incUpdates = {}; 
     const shuffledItems = Object.keys(GATHER_TABLE).sort(() => 0.5 - secureRandomFloat());
@@ -627,7 +607,7 @@ if (basketCount > 0) {
         effectivenessMultiplier = Math.max(0.1, effectivenessMultiplier - 0.1);
     }
 }
-            const finalQty = baseQty + basketBonus + totalAbundanceBonus;
+            const finalQty = baseQty + totalBasketBonus + totalAbundanceBonus;
             incUpdates[`inventory.${itemId}`] = (incUpdates[`inventory.${itemId}`] || 0) + finalQty;
             
             let bonusTextParts = [];
@@ -658,6 +638,7 @@ if (basketCount > 0) {
         
         let towerMessage = '';
         // --- GRID SYSTEM ---
+        let towerMessage = '';
         let powerGeneration = 0;
         let powerConsumption = 0;
         (account.powerGrid?.slots || []).forEach(buildingId => {
@@ -1463,7 +1444,7 @@ async function handleSlashCommand(interaction) {
             break;
         }
 
-        case 'timers': { const timerLines = await handleTimers(account); const timerEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('⏳ Your Cooldowns').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setDescription(timerLines.join('\n')); await interaction.editReply({ embeds: [timerEmbed] }); break; } case 'work': case 'daily': case 'hourly': case 'gather': case 'smelt': case 'eat': case 'flip': case 'slots': case 'craft': case 'pay': { if (commandName === 'work') result = await handleWork(account); if (commandName === 'daily') result = await handleDaily(account); if (commandName === 'hourly') result = await handleHourly(account); if (commandName === 'gather') result = await handleGather(account); if (commandName === 'smelt') { itemName = options.getString('ore_name'); quantity = options.getInteger('quantity'); result = await handleSmelt(account, itemName, quantity); } if (commandName === 'eat') { itemName = options.getString('food_name'); result = await handleEat(account, itemName); } if (commandName === 'flip') { amount = options.getInteger('amount'); choice = options.getString('choice'); result = await handleFlip(account, amount, choice); } if (commandName === 'slots') { amount = options.getInteger('amount'); result = await handleSlots(account, amount); } if (commandName === 'craft') { itemName = options.getString('item_name'); quantity = options.getInteger('quantity') || 1; result = await handleCraft(account, itemName, quantity); } if (commandName === 'pay') { const recipientUser = options.getUser('user'); amount = options.getInteger('amount'); if (recipientUser.bot) { result = { success: false, message: "You can't pay bots." }; } else if (!isFinite(account.balance)) { result = { success: false, message: 'Your account balance is corrupted. Please contact an admin.' }; } else if (!isFinite(amount) || amount <= 0) { result = { success: false, message: 'Please enter a valid, positive amount.' }; } else { const recipientAccount = await getAccount(recipientUser.id); if (!recipientAccount) { result = { success: false, message: `That user doesn't have an economy account yet.` }; } else { result = await handlePay(account, recipientAccount, amount); } } } const responseEmbed = new EmbedBuilder() .setColor(result.success ? '#57F287' : '#ED4245') .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }) .setDescription(result.message); await interaction.editReply({ embeds: [responseEmbed] }); break; } case 'marketsell': { itemName = options.getString('item_name'); quantity = options.getInteger('quantity'); price = options.getNumber('price'); result = await handleMarketSell(account, itemName, quantity, price); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketbuy': { listingId = options.getInteger('listing_id'); result = await handleMarketBuy(account, listingId); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketcancel': { const listingIdToCancel = options.getInteger('listing_id'); result = await handleMarketCancel(account, listingIdToCancel); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'crateshopbuy': { const crateNameToOpenSlash = options.getString('crate_name'); const amountToOpenSlash = options.getInteger('amount'); result = await handleCrateShopBuy(account, crateNameToOpenSlash, amountToOpenSlash); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setTitle(result.success ? `Opened ${amountToOpenSlash}x ${LOOTBOXES[Object.keys(LOOTBOXES).find(k => LOOTBOXES[k].name.toLowerCase() === crateNameToOpenSlash.toLowerCase())].name}` : 'Error').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } 
+        case 'timers': { const timerLines = await handleTimers(account); const timerEmbed = new EmbedBuilder().setColor('#3498DB').setTitle('⏳ Your Cooldowns').setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setDescription(timerLines.join('\n')); await interaction.editReply({ embeds: [timerEmbed] }); break; } case 'work': case 'daily': case 'hourly': case 'gather': case 'smelt': case 'eat': case 'flip': case 'slots': case 'craft': case 'pay': { if (commandName === 'work') result = await handleWork(account); if (commandName === 'daily') result = await handleDaily(account); if (commandName === 'hourly') result = await handleHourly(account); if (commandName === 'gather') result = await handleGather(account); if (commandName === 'gather') result = await handleGather(account); if (commandName === 'smelt') { itemName = options.getString('ore_name'); quantity = options.getInteger('quantity'); result = await handleSmelt(account, itemName, quantity); } if (commandName === 'eat') { itemName = options.getString('food_name'); result = await handleEat(account, itemName); } if (commandName === 'flip') { amount = options.getInteger('amount'); choice = options.getString('choice'); result = await handleFlip(account, amount, choice); } if (commandName === 'slots') { amount = options.getInteger('amount'); result = await handleSlots(account, amount); } if (commandName === 'craft') { itemName = options.getString('item_name'); quantity = options.getInteger('quantity') || 1; result = await handleCraft(account, itemName, quantity); } if (commandName === 'pay') { const recipientUser = options.getUser('user'); amount = options.getInteger('amount'); if (recipientUser.bot) { result = { success: false, message: "You can't pay bots." }; } else if (!isFinite(account.balance)) { result = { success: false, message: 'Your account balance is corrupted. Please contact an admin.' }; } else if (!isFinite(amount) || amount <= 0) { result = { success: false, message: 'Please enter a valid, positive amount.' }; } else { const recipientAccount = await getAccount(recipientUser.id); if (!recipientAccount) { result = { success: false, message: `That user doesn't have an economy account yet.` }; } else { result = await handlePay(account, recipientAccount, amount); } } } const responseEmbed = new EmbedBuilder() .setColor(result.success ? '#57F287' : '#ED4245') .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }) .setDescription(result.message); await interaction.editReply({ embeds: [responseEmbed] }); break; } case 'marketsell': { itemName = options.getString('item_name'); quantity = options.getInteger('quantity'); price = options.getNumber('price'); result = await handleMarketSell(account, itemName, quantity, price); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketbuy': { listingId = options.getInteger('listing_id'); result = await handleMarketBuy(account, listingId); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'marketcancel': { const listingIdToCancel = options.getInteger('listing_id'); result = await handleMarketCancel(account, listingIdToCancel); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } case 'crateshopbuy': { const crateNameToOpenSlash = options.getString('crate_name'); const amountToOpenSlash = options.getInteger('amount'); result = await handleCrateShopBuy(account, crateNameToOpenSlash, amountToOpenSlash); const embed = new EmbedBuilder().setColor(result.success ? '#57F287' : '#ED4245').setTitle(result.success ? `Opened ${amountToOpenSlash}x ${LOOTBOXES[Object.keys(LOOTBOXES).find(k => LOOTBOXES[k].name.toLowerCase() === crateNameToOpenSlash.toLowerCase())].name}` : 'Error').setDescription(result.message); await interaction.editReply({ embeds: [embed] }); break; } 
     }
 
     if (isNewUser) {
