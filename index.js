@@ -399,6 +399,7 @@ async function handleGridUpgrade(account) {
 }
 
 async function handleWork(account) {
+    let towerMessage = '';
     let now = Date.now();
     let baseCooldown = WORK_COOLDOWN_MINUTES * 60 * 1000;
     let workBonusPercent = 0; let scavengerChance = 0; let cooldownReductionPercent = 0; let momentumChance = 0;
@@ -480,7 +481,27 @@ async function handleWork(account) {
             doubleOrNothingMessage = `\n> 🌶️ **NOTHING!** Your Spicy Pepper was a dud!`;
         }
     }
+// --- GRID SYSTEM ---
+let towerMessage = '';
+let powerGeneration = 0;
+let powerConsumption = 0;
+(account.powerGrid?.slots || []).forEach(buildingId => {
+    if (buildingId && BUILDINGS[buildingId]) {
+        const building = BUILDINGS[buildingId];
+        powerGeneration += building.effects.power_generation || 0;
+        powerConsumption += building.effects.power_consumption || 0;
+    }
+});
 
+if (powerGeneration >= powerConsumption && (account.powerGrid?.slots || []).includes('tower')) {
+    if (secureRandomFloat() < 0.10) { // 10% chance
+         if (secureRandomFloat() < 0.10) {
+        totalEarnings *= 2;
+        }
+        towerMessage = `\n> 🗼 **SURGE!** Your Tower duplicated your entire haul!`;
+    }
+}
+// --- END GRID SYSTEM ---
     let eventMessage = '';
     if (currentGlobalEvent && currentGlobalEvent.effect.type === 'work') {
         totalEarnings *= currentGlobalEvent.effect.multiplier;
