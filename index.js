@@ -398,13 +398,16 @@ async function handleGridUpgrade(account) {
     return { success: true, message: `Success! You upgraded your power grid to **${newSlots.length} slots** for ${cost.toLocaleString()} ${CURRENCY_NAME}.` };
 }
 
+// index.js
+
 async function handleWork(account) {
-    let towerMessage = '';
+    // CHANGE #1: The towerMessage variable is now only declared ONCE.
+    let towerMessage = ''; 
     let now = Date.now();
     let baseCooldown = WORK_COOLDOWN_MINUTES * 60 * 1000;
     let workBonusPercent = 0; let scavengerChance = 0; let cooldownReductionPercent = 0; let momentumChance = 0;
     let zealBonusAmount = 0;
-    let isDoubleOrNothingActive = false; // Flag for the spicy pepper effect
+    let isDoubleOrNothingActive = false;
 
     let clan = null;
     if (account.clanId) {
@@ -481,27 +484,28 @@ async function handleWork(account) {
             doubleOrNothingMessage = `\n> 🌶️ **NOTHING!** Your Spicy Pepper was a dud!`;
         }
     }
-// --- GRID SYSTEM ---
-let towerMessage = '';
-let powerGeneration = 0;
-let powerConsumption = 0;
-(account.powerGrid?.slots || []).forEach(buildingId => {
-    if (buildingId && BUILDINGS[buildingId]) {
-        const building = BUILDINGS[buildingId];
-        powerGeneration += building.effects.power_generation || 0;
-        powerConsumption += building.effects.power_consumption || 0;
-    }
-});
-
-if (powerGeneration >= powerConsumption && (account.powerGrid?.slots || []).includes('tower')) {
-    if (secureRandomFloat() < 0.10) { // 10% chance
-         if (secureRandomFloat() < 0.10) {
-        totalEarnings *= 2;
+    
+    // --- GRID SYSTEM ---
+    let powerGeneration = 0;
+    let powerConsumption = 0;
+    (account.powerGrid?.slots || []).forEach(buildingId => {
+        if (buildingId && BUILDINGS[buildingId]) {
+            const building = BUILDINGS[buildingId];
+            powerGeneration += building.effects.power_generation || 0;
+            powerConsumption += building.effects.power_consumption || 0;
         }
-        towerMessage = `\n> 🗼 **SURGE!** Your Tower duplicated your entire haul!`;
+    });
+
+    if (powerGeneration >= powerConsumption && (account.powerGrid?.slots || []).includes('tower')) {
+        // CHANGE #2: The nested if-statement is removed. Now the effect and message
+        // both trigger on the same 10% chance.
+        if (secureRandomFloat() < 0.10) { // 10% chance
+            totalEarnings *= 2;
+            towerMessage = `\n> 🗼 **SURGE!** Your Tower duplicated your entire haul!`;
+        }
     }
-}
-// --- END GRID SYSTEM ---
+    // --- END GRID SYSTEM ---
+
     let eventMessage = '';
     if (currentGlobalEvent && currentGlobalEvent.effect.type === 'work') {
         totalEarnings *= currentGlobalEvent.effect.multiplier;
@@ -552,7 +556,6 @@ if (powerGeneration >= powerConsumption && (account.powerGrid?.slots || []).incl
 
     return { success: true, message: finalMessage + scavengerLoot };
 }
-
 async function handleGather(account) {
     let now = Date.now();
     let baseCooldown = GATHER_COOLDOWN_MINUTES * 60 * 1000; 
@@ -1565,7 +1568,7 @@ case 'gridp': {
         break;
     }
 
-    const currentGrid = account.powerGrid;
+    const currentGrid = account.powerGrid || { slots: [], lastTick: Date.now() };
     const slotIndex = slot - 1;
 
     // Return the currently placed item to inventory if the slot is occupied
@@ -1605,7 +1608,7 @@ case 'info': {
             case 'surveyor': effectText = `Grants a 2% chance per level to double your entire haul from /gather.`; break;
             case 'collector': effectText = `Increases the bonus reward for first-time crafts by 20% per level.`; break;
             case 'the_addict': effectText = `After losing a gamble, boosts your next /work by a % based on wealth lost, multiplied by 50% per level.`; break;
-            case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by 2.5% per level. Stacks do not decay.`; break;
+            case 'zealot': effectText = `Each 'Zeal' stack boosts rewards by 2.5% per level. Stacks reset if inactive for 10 minutes.`; break;
             default: effectText = trait.description.replace(/{.*?}/g, '...');
         }
         responseMessage = [`--- ${toBoldFont(`${trait.name} (${trait.rarity})`)} ---`, effectText, `Max Level: ${trait.maxLevel}`].join('\n');
