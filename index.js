@@ -623,7 +623,7 @@ if (basketCount > 0) {
         const rawBonus = mean + stdDev * random_normal;
         const tierBonus = Math.round(Math.max(0, rawBonus));
         totalBasketBonus += tierBonus;
-        remainingBaskets -= basketsInThisTier;.
+        remainingBaskets -= basketsInThisTier;
         effectivenessMultiplier = Math.max(0.1, effectivenessMultiplier - 0.1);
     }
 }
