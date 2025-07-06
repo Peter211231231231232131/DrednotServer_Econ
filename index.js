@@ -636,7 +636,7 @@ if (basketCount > 0) {
             }
         }
         
-        let towerMessage = '';
+      
         // --- GRID SYSTEM ---
         let towerMessage = '';
         let powerGeneration = 0;
