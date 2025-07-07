@@ -57,7 +57,7 @@ const IN_GAME_COMMANDS = [
     { command: '!clan disband', description: '(Owner) Disband your clan.' },
     
     // Utility
-    { command: '!n / !p', description: 'Navigate multi-page lists (next/previous).' },
+    { command: '!n / !p', description: 'Navigate multi-page lists (next/previous). might be broken' },
 ];
 
 // This line makes the IN_GAME_COMMANDS array available to other files
